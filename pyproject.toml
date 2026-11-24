@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "grebennikov-ya-mail"
-version = "0.1.0"
+version = "0.1.1"
 description = "Яндекс Почта для локальных агентов и расписаний Codex"
 requires-python = ">=3.13"
 readme = "README.md"

@@ -130,9 +130,16 @@ def summaries(client, account, folder, validity, uids):
     result = []
     for uid in uids:
         row = rows.get(uid)
-        if row is None or HEADER not in row:
+        if row is None:
             continue
-        msg = PARSER.parsebytes(row[HEADER], headersonly=True)
+        # Only one header section was requested. Yandex can return its field
+        # names in a different order from the FETCH command.
+        headers = next(
+            (v for k, v in row.items() if k.startswith(b"BODY[HEADER.FIELDS (")), None
+        )
+        if not isinstance(headers, bytes):
+            raise Problem("IMAP-сервер не вернул запрошенные заголовки письма.")
+        msg = PARSER.parsebytes(headers, headersonly=True)
         result.append(
             {
                 "ref": Ref(

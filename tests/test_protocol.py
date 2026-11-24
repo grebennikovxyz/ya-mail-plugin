@@ -50,7 +50,7 @@ def test_imap_fetch_header_literal_and_unicode_search():
                     assert b"BODY.PEEK[" in cmd
                     self.wfile.write(
                         b"* 1 FETCH (UID 42 FLAGS () RFC822.SIZE 250 "
-                        + mail.HEADER
+                        + b"BODY[HEADER.FIELDS (IN-REPLY-TO REFERENCES MESSAGE-ID SUBJECT REPLY-TO CC TO FROM DATE)]"
                         + b" {"
                         + str(len(raw)).encode()
                         + b"}\r\n"
