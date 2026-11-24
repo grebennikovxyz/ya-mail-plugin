@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "yandex-mail": {
+      "type": "stdio",
+      "command": "ya-mail",
+      "args": [
+        "serve"
+      ]
+    },
+    "yandex-mail-360": {
+      "type": "stdio",
+      "command": "ya-mail",
+      "args": [
+        "serve-360"
+      ]
+    }
+  }
+}

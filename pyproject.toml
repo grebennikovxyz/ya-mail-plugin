@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "grebennikov-ya-mail"
+version = "0.1.0"
+description = "Яндекс Почта для локальных агентов и расписаний Codex"
+requires-python = ">=3.13"
+readme = "README.md"
+license = "Apache-2.0"
+dependencies = ["IMAPClient>=3.0.1,<4", "mcp>=1.30,<2", "httpx>=0.28,<1", "pydantic>=2.11,<3", "keyring>=25,<26", "platformdirs>=4,<5"]
+
+[project.scripts]
+ya-mail = "ya_mail.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ya_mail"]

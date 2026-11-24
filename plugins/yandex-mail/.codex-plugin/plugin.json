@@ -1,0 +1,24 @@
+{
+  "name": "yandex-mail",
+  "version": "0.1.0",
+  "description": "Неофициальный плагин для Яндекс Почты с локальным мастером подключения, IMAP/SMTP и поддержкой Яндекс 360.",
+  "author": {
+    "name": "Антон Гребенников"
+  },
+  "repository": "https://github.com/grebennikovxyz/ya-mail-plugin",
+  "license": "Apache-2.0",
+  "requires_local_executor": true,
+  "mcpServers": "./mcp.json",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Яндекс Почта",
+    "shortDescription": "Почта, метки и проверки по расписанию",
+    "developerName": "Антон Гребенников",
+    "category": "Productivity",
+    "brandColor": "#A13232",
+    "defaultPrompt": [
+      "Покажи непрочитанные письма за сегодня",
+      "Найди переписку с поставщиком и подготовь ответ"
+    ]
+  }
+}
