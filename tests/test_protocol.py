@@ -126,9 +126,12 @@ def test_manifest_stdio_handshake(server_name, tmp_path):
                 "modify_messages",
                 "send_draft",
                 "poll_new",
+                "route_attachments",
                 "acknowledge_batch",
             } <= by_name.keys()
             assert by_name["read_message"].annotations.readOnlyHint
+            assert manifest["interface"]["displayName"] == "Ya-Ma"
+            assert (bundle / manifest["interface"]["composerIcon"]).is_file()
             assert not by_name["send_email"].annotations.readOnlyHint
             result = await session.call_tool("list_accounts", {})
             assert (

@@ -6,7 +6,7 @@ from .accounts import Problem, forget, profiles
 
 
 def main():
-    cli = argparse.ArgumentParser(prog="ya-mail", description="Яндекс Почта для Codex")
+    cli = argparse.ArgumentParser(prog="ya-mail", description="Ya-Ma для Codex")
     actions = cli.add_subparsers(dest="action", required=True)
     setup = actions.add_parser("connect", help="Мастер подключения")
     setup.add_argument("--terminal", action="store_true", help="Текстовый мастер")

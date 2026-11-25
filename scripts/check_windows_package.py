@@ -28,6 +28,7 @@ async def verify(folder):
             names = {tool.name for tool in (await session.list_tools()).tools}
             assert {
                 "poll_new",
+                "route_attachments",
                 "read_message",
                 "modify_messages",
                 "send_email",
@@ -40,14 +41,21 @@ if __name__ == "__main__":
         asyncio.run(verify(Path(sys.argv[1])))
     else:
         root = Path(__file__).resolve().parents[1]
-        (archive,) = (root / "dist").glob("*-windows-x64.zip")
+        version = json.loads((root / "plugins/yandex-mail/plugin.json").read_bytes())[
+            "version"
+        ]
+        archive = root / "dist" / f"yandex-mail-{version}-windows-x64.zip"
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / "Ya Mail QA"
             with ZipFile(archive) as z:
                 assert not any(p.endswith("direct_url.json") for p in z.namelist())
-                assert {"connect.cmd", "connect-360.cmd", "runtime/LICENSE.txt"} <= set(
-                    z.namelist()
-                )
+                assert {
+                    "connect.cmd",
+                    "connect-360.cmd",
+                    "runtime/LICENSE.txt",
+                    "assets/ya-ma.png",
+                    "NOTICE",
+                } <= set(z.namelist())
                 z.extractall(folder)
             subprocess.run(
                 [folder / "runtime/python.exe", "-I", "-B", __file__, folder],

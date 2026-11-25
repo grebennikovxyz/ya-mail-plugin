@@ -41,4 +41,4 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.whl dist/*.zip dist/SHA256SUMS.txt --verify-tag --title "Яндекс Почта $GITHUB_REF_NAME" --notes "Локальный плагин для Codex. В архиве windows-x64 есть Python и мастер connect.cmd. Инструкции по подключению и расписаниям приведены в README."
+        run: gh release create "$GITHUB_REF_NAME" dist/*.whl dist/*.zip dist/SHA256SUMS.txt --verify-tag --title "Ya-Ma $GITHUB_REF_NAME" --notes "Почта для Codex с мастером подключения. Добавлены выгрузка вложений в Ya-Di по правилу, передача сроков в Ya-Cal и иконка Ya-Ma. В архиве windows-x64 есть Python и мастер connect.cmd."

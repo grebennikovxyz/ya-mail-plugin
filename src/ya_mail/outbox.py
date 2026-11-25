@@ -6,12 +6,13 @@ import smtplib
 from email import policy
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
+from imaplib import IMAP4
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .accounts import Problem, address, database
-from .mail import Ref, Short, raw_message, special
+from .mail import Filter, Ref, Short, raw_message, search_folder, special
 from .transport import outgoing
 
 Addresses = Annotated[list[Short], Field(max_length=100)]
@@ -103,15 +104,15 @@ def draft(client, account, letter):
             uid=int(match[2]),
         )
     else:
-        info = client.select_folder(folder, readonly=True)
-        found = client.search(["HEADER", "Message-ID", str(msg["Message-ID"])])
-        if len(found) == 1:
-            ref = Ref(
-                account=account.email,
-                folder=folder,
-                validity=info[b"UIDVALIDITY"],
-                uid=found[0],
+        # APPEND succeeded. Even if the follow-up lookup fails the draft is saved.
+        try:
+            found = search_folder(
+                client, account, folder, Filter(message_id=str(msg["Message-ID"])), 2
             )
+            if len(found["messages"]) == 1:
+                ref = Ref(**found["messages"][0]["ref"])
+        except (IMAP4.error, OSError, Problem):
+            pass
     return {
         "folder": folder,
         "message_id": str(msg["Message-ID"]),

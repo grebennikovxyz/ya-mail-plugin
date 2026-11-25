@@ -1,13 +1,15 @@
 import base64
+import hashlib
 import re
 from datetime import date
 from email import policy
 from email.parser import BytesParser
+from itertools import batched, islice
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .accounts import Problem
+from .accounts import Problem, database
 
 Short = Annotated[
     str, Field(min_length=1, max_length=512, pattern=r"^[^\x00-\x1f\x7f]+$")
@@ -17,6 +19,7 @@ PageSize = Annotated[int, Field(ge=1, le=100)]
 MAX_MESSAGE = 32 * 1024 * 1024
 HEADER = b"BODY[HEADER.FIELDS (DATE FROM TO CC REPLY-TO SUBJECT MESSAGE-ID REFERENCES IN-REPLY-TO)]"
 HEADER_PEEK = HEADER.replace(b"BODY[", b"BODY.PEEK[").decode()
+THREAD_BATCH = 60
 PARSER = BytesParser(policy=policy.default)
 
 
@@ -51,8 +54,6 @@ class Filter(BaseModel):
         ):
             if value:
                 terms.extend([key, search_string(value)])
-        if self.message_id:
-            terms.extend(["HEADER", "Message-ID", search_string(self.message_id)])
         if self.since:
             terms.extend(["SINCE", self.since])
         if self.before:
@@ -123,6 +124,126 @@ def checked_folder(client, ref, account, write=False):
     return info
 
 
+def fetched_headers(row):
+    # Each FETCH requests one header section. Yandex may reorder its field names.
+    raw = next(
+        (v for k, v in row.items() if k.startswith(b"BODY[HEADER.FIELDS (")), None
+    )
+    if not isinstance(raw, bytes):
+        raise Problem("IMAP-сервер не вернул запрошенные заголовки письма.")
+    return PARSER.parsebytes(raw, headersonly=True)
+
+
+def identifier_rows(client, uids):
+    """Yandex may reject UID SEARCH HEADER. Only fetch identifier headers."""
+    section = "BODY.PEEK[HEADER.FIELDS (MESSAGE-ID IN-REPLY-TO REFERENCES)]"
+    for batch in batched(uids, 60):
+        lo, hi = min(batch), max(batch)
+        # Avoid long comma lists on Yandex, without scanning large sparse ranges.
+        sequence = f"{lo}:{hi}" if hi - lo < 2 * len(batch) else batch
+        rows = client.fetch(sequence, [section])
+        for uid in batch:
+            if uid not in rows:
+                continue
+            headers = fetched_headers(rows[uid])
+            mid = re.search(r"<[^<>\s]+>", str(headers.get("Message-ID", "")))
+            parents = " ".join(
+                str(v)
+                for k in ("In-Reply-To", "References")
+                for v in headers.get_all(k, [])
+            )
+            hashes = [header_hash(mid[0]) if mid else "-"]
+            hashes.extend(map(header_hash, re.findall(r"<[^<>\s]+>", parents)))
+            yield uid, " ".join(hashes)
+
+
+def matching_uids(client, account, folder, validity, filters, extra=()):
+    uids = sorted(
+        client.search([*filters.criteria(), *extra], charset="UTF-8"), reverse=True
+    )
+    if filters.message_id:
+        value = filters.message_id.strip()
+        wanted = value if value.startswith("<") else f"<{value}>"
+        cached, _, remaining = indexed_headers(
+            client, account, folder, validity, uids, 2 * THREAD_BATCH
+        )
+        if remaining:
+            raise Problem(
+                f"Продолжается точный поиск. Осталось проверить {remaining} заголовков в папке. Повторите вызов с теми же параметрами."
+            )
+        digest = header_hash(wanted)
+        return (uid for uid in uids if cached.get(uid, "").partition(" ")[0] == digest)
+    return iter(uids)
+
+
+def header_hash(value):
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def indexed_headers(client, account, folder, validity, uids, budget):
+    key = (account.email, folder, validity)
+    with database() as db:
+        cached = dict(
+            db.execute(
+                "SELECT uid,hashes FROM thread_headers WHERE email=? AND folder=? AND validity=?",
+                key,
+            )
+        )
+    missing = [uid for uid in uids if uid not in cached]
+    new = missing[:budget]
+    for batch in batched(new, THREAD_BATCH):
+        rows = dict(identifier_rows(client, batch))
+        fresh = {uid: rows.get(uid, "") for uid in batch}
+        with database() as db:
+            db.executemany(
+                "INSERT OR IGNORE INTO thread_headers VALUES(?,?,?,?,?)",
+                [(*key, uid, hashes) for uid, hashes in fresh.items()],
+            )
+        cached.update(fresh)
+    return cached, len(new), len(missing) - len(new)
+
+
+def thread_refs(client, account, folders, roots):
+    """Join replies across folders even when senders only set In-Reply-To."""
+    links = {}
+    locations = []
+    budget = 2 * THREAD_BATCH
+    complete = True
+    for folder in folders:
+        validity = client.select_folder(folder, readonly=True)[b"UIDVALIDITY"]
+        uids = sorted(client.search(["UNDELETED"]), reverse=True)
+        cached, indexed, remaining = indexed_headers(
+            client, account, folder, validity, uids, budget
+        )
+        complete &= not remaining
+        budget -= indexed
+        for uid in uids:
+            ids = cached.get(uid, "").split()
+            if ids and ids[0] == "-":
+                ids = ids[1:]
+            if not ids:
+                continue
+            first = ids[0]
+            locations.append((folder, validity, uid, first))
+            for other in ids[1:]:
+                links.setdefault(first, set()).add(other)
+                links.setdefault(other, set()).add(first)
+    related = set(map(header_hash, roots))
+    pending = list(related)
+    while pending:
+        unseen = links.get(pending.pop(), set()) - related
+        related.update(unseen)
+        pending.extend(unseen)
+    return (
+        (
+            Ref(account=account.email, folder=f, validity=v, uid=u)
+            for f, v, u, mid in locations
+            if mid in related
+        ),
+        complete,
+    )
+
+
 def summaries(client, account, folder, validity, uids):
     if not uids:
         return []
@@ -132,14 +253,7 @@ def summaries(client, account, folder, validity, uids):
         row = rows.get(uid)
         if row is None:
             continue
-        # Only one header section was requested. Yandex can return its field
-        # names in a different order from the FETCH command.
-        headers = next(
-            (v for k, v in row.items() if k.startswith(b"BODY[HEADER.FIELDS (")), None
-        )
-        if not isinstance(headers, bytes):
-            raise Problem("IMAP-сервер не вернул запрошенные заголовки письма.")
-        msg = PARSER.parsebytes(headers, headersonly=True)
+        msg = fetched_headers(row)
         result.append(
             {
                 "ref": Ref(
@@ -169,7 +283,7 @@ def summaries(client, account, folder, validity, uids):
 def search_folder(client, account, folder, filters, limit, before_ref=None):
     info = client.select_folder(folder, readonly=True)
     validity = info[b"UIDVALIDITY"]
-    criteria = filters.criteria()
+    extra = []
     if before_ref:
         if (before_ref.folder, before_ref.account, before_ref.validity) != (
             folder,
@@ -179,8 +293,12 @@ def search_folder(client, account, folder, filters, limit, before_ref=None):
             raise Problem("Указатель страницы устарел или относится к другой папке.")
         if before_ref.uid == 1:
             return {"messages": [], "next_before": None}
-        criteria.extend(["UID", f"1:{before_ref.uid - 1}"])
-    uids = sorted(client.search(criteria, charset="UTF-8"), reverse=True)
+        extra = ["UID", f"1:{before_ref.uid - 1}"]
+    uids = list(
+        islice(
+            matching_uids(client, account, folder, validity, filters, extra), limit + 1
+        )
+    )
     page = uids[:limit]
     return {
         "messages": summaries(client, account, folder, validity, page),
@@ -211,6 +329,12 @@ def raw_message(client, ref, account):
 
 def parts(msg):
     # Do not descend into attached messages when selecting downloadable parts.
+    if msg.get_content_disposition() == "attachment" or (
+        not msg.is_multipart()
+        and (msg.get_filename() or msg.get_content_maintype() != "text")
+    ):
+        yield msg
+        return
     for child in msg.iter_parts():
         if (
             child.get_filename()

@@ -17,6 +17,7 @@ FILES = [
     "plugin.json",
     ".codex-plugin/plugin.json",
     "mcp.json",
+    "assets/ya-ma.png",
     "skills/yandex-mail/SKILL.md",
 ]
 
@@ -91,7 +92,11 @@ def package(runtime=None):
                         ]
                     content = json.dumps(config, indent=2).encode()
                 archive.writestr(f, content)
-            for f in ("README.md", "LICENSE"):
+            readme = (ROOT / "README.md").read_text(encoding="utf-8")
+            archive.writestr(
+                "README.md", readme.replace("plugins/yandex-mail/assets/", "assets/")
+            )
+            for f in ("LICENSE", "NOTICE"):
                 archive.write(ROOT / f, f)
             if runtime:
                 runtime_files(archive, runtime, packages)
@@ -112,7 +117,7 @@ if __name__ == "__main__":
         package(args.windows_runtime.resolve())
     with (DIST / "SHA256SUMS.txt").open("w", encoding="utf-8", newline="\n") as sums:
         for path in sorted(DIST.iterdir()):
-            if path.suffix in {".zip", ".whl"}:
+            if VERSION in path.name and path.suffix in {".zip", ".whl"}:
                 with path.open("rb") as f:
                     sums.write(
                         f"{hashlib.file_digest(f, 'sha256').hexdigest()}  {path.name}\n"

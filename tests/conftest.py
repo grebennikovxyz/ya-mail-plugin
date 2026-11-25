@@ -79,6 +79,9 @@ class Box:
 
     def fetch(self, ids, items):
         self.calls.append(("fetch", tuple(items)))
+        if isinstance(ids, str):
+            lo, hi = map(int, ids.split(":"))
+            ids = range(lo, hi + 1)
         return {
             i: {
                 b"BODY[]": raw,

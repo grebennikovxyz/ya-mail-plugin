@@ -71,6 +71,10 @@ def database():
             CREATE TABLE IF NOT EXISTS labels(
                 email TEXT REFERENCES accounts(email) ON DELETE CASCADE, name TEXT,
                 PRIMARY KEY(email,name));
+            CREATE TABLE IF NOT EXISTS thread_headers(
+                email TEXT REFERENCES accounts(email) ON DELETE CASCADE, folder TEXT,
+                validity INTEGER, uid INTEGER, hashes TEXT NOT NULL,
+                PRIMARY KEY(email,folder,validity,uid));
         """)
         with db:
             yield db

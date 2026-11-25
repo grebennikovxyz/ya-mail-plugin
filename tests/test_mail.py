@@ -1,6 +1,8 @@
 import base64
 import smtplib
 from contextlib import nullcontext
+from email import policy
+from email.message import EmailMessage
 from unittest.mock import MagicMock
 from uuid import uuid4
 
@@ -8,6 +10,76 @@ import pytest
 from pydantic import ValidationError
 
 from ya_mail import accounts, mail, native, outbox, server, transport
+
+
+def test_search_ids_and_transitive_threads_without_search_header(env):
+    account, box = env
+
+    def insert(folder, mid, parent=None):
+        msg = EmailMessage(policy=policy.SMTP)
+        msg["Message-ID"] = f"<{mid}@example.org>"
+        if parent:
+            msg["In-Reply-To"] = f"<{parent}@example.org>"
+        msg.set_content("synthetic")
+        uid = max(box.data[folder], default=0) + 1
+        box.data[folder][uid] = msg.as_bytes()
+        return mail.Ref(
+            account=account.email, folder=folder, validity=box.validity, uid=uid
+        )
+
+    root = insert("INBOX", "root")
+    insert("Archive", "reply", "root")
+    insert("INBOX", "follow-up", "reply")
+    insert("INBOX", "unrelated-root")
+    duplicate = insert("INBOX", "root")
+    filters = mail.Filter(message_id="root@example.org")
+    page = server.search_messages(account.email, filters, "INBOX", 1)
+    assert page["messages"][0]["ref"] == duplicate.model_dump()
+    second = server.search_messages(
+        account.email, filters, "INBOX", 1, mail.Ref(**page["next_before"])
+    )
+    assert (
+        second["messages"][0]["ref"] == root.model_dump()
+        and second["next_before"] is None
+    )
+    assert server.count_messages(account.email, filters)["total"] == 2
+    result = server.read_thread(root)
+    assert {m["Message-ID"] for m in result["messages"]} == {
+        "<root@example.org>",
+        "<reply@example.org>",
+        "<follow-up@example.org>",
+    }
+    assert server.read_thread(root, limit=1)["truncated"]
+    assert all("HEADER" not in call[1] for call in box.calls if call[0] == "search")
+
+
+def test_header_index_resumes_and_tracks_uidvalidity(env, monkeypatch):
+    account, box = env
+    monkeypatch.setattr(mail, "THREAD_BATCH", 1)
+    for _ in range(4):
+        box.add()
+    root = mail.Ref(account=account.email, folder="INBOX", validity=box.validity, uid=1)
+    assert not server.read_thread(root, "INBOX")["index_complete"]
+    result = server.read_thread(root, "INBOX")
+    assert (
+        result["index_complete"] and result["messages"][0]["ref"] == root.model_dump()
+    )
+    exact = mail.Filter(message_id="<1-INBOX@example.org>")
+    box.calls.clear()
+    assert server.count_messages(account.email, exact)["total"] == 1
+    assert all(call[0] != "fetch" for call in box.calls)
+    box.validity += 1
+    with pytest.raises(accounts.Problem, match="Осталось проверить"):
+        server.count_messages(account.email, exact)
+    assert server.count_messages(account.email, exact)["total"] == 1
+    with accounts.database() as db:
+        assert all(
+            "example.org" not in r[0]
+            for r in db.execute("SELECT hashes FROM thread_headers")
+        )
+    accounts.forget(account.email)
+    with accounts.database() as db:
+        assert db.execute("SELECT count(*) FROM thread_headers").fetchone()[0] == 0
 
 
 def test_profile_and_permissions(env):
