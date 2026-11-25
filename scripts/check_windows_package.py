@@ -24,7 +24,18 @@ async def verify(folder):
         # Introspecting the optional 360 server would use a previously configured token.
         if key == "yandex-mail-360":
             continue
-        params = StdioServerParameters(command=str(command), args=entry["args"])
+        # Exercise the packaged entry point with an empty store. A normal serve
+        # invocation also resumes real pending sends for the current OS user.
+        args = entry["args"]
+        assert args == ["-I", "-B", "-m", "ya_mail.cli", "serve"]
+        bootstrap = (
+            "import sys,runpy; from pathlib import Path; import ya_mail.accounts as a; "
+            "a.DATA=Path(sys.argv.pop(1)); runpy.run_module('ya_mail.cli',run_name='__main__')"
+        )
+        params = StdioServerParameters(
+            command=str(command),
+            args=["-I", "-B", "-c", bootstrap, str(folder / "qa-data"), "serve"],
+        )
         async with stdio_client(params) as (r, w), ClientSession(r, w) as session:
             await session.initialize()
             names = {tool.name for tool in (await session.list_tools()).tools}
