@@ -271,3 +271,92 @@ def submit_digest(account, request, digest, msg):
                 (json.dumps(result), account.email, request),
             )
         return result
+
+
+def revise(client, account, ref, letter, sources):
+    from . import mail, removal
+
+    if ref.folder != special(client, "drafts"):
+        raise Problem("Для редактирования выберите письмо из Черновиков.")
+    trash = special(client, "trash")
+    allow(account.email, ref.folder, client)
+    allow(account.email, trash, client)
+    if trash == ref.folder:
+        raise Problem("Выберите разные системные папки для Черновиков и Корзины.")
+    key = (account.email, ref.folder, ref.validity, ref.uid)
+    digest = hashlib.sha256(letter.model_dump_json().encode()).hexdigest()
+    msg = build(client, account, letter)
+    with database() as db:
+        db.execute("BEGIN IMMEDIATE")
+        old = db.execute(
+            "SELECT digest,message_id,result FROM revisions WHERE email=? AND folder=? AND validity=? AND uid=?",
+            key,
+        ).fetchone()
+        if old:
+            if old["digest"] != digest:
+                raise Problem(
+                    "Эта версия уже редактировалась. Получите актуальный черновик."
+                )
+            if old["result"]:
+                return json.loads(old["result"])
+            raise Problem(
+                "Состояние сохранения неизвестно. Проверьте Черновики по Message-ID "
+                + old["message_id"]
+            )
+        mail.checked_folder(client, ref, account, write=True)
+        state = db.execute(
+            "SELECT state FROM delivery_jobs WHERE email=? AND draft_ref=?",
+            (account.email, ref.model_dump_json()),
+        ).fetchone()
+        if state and state[0] not in ("stopped", "failed"):
+            raise Problem(
+                "Этот черновик связан с очередью. Используйте edit_queued_email и номер отправки."
+            )
+        origin = db.execute(
+            "SELECT protected FROM draft_origins WHERE ref=?", (ref.model_dump_json(),)
+        ).fetchone()
+        if origin and origin[0] < 0:
+            raise Problem("Выберите последнюю версию черновика.")
+        if ref.uid not in client.get_flags([ref.uid]):
+            raise Problem("Исходный черновик перемещён. Обновите список.")
+        old_msg = mail.reply_source(client, ref, account)
+        if not letter.reply_to_message and not letter.forward_message:
+            for header in ("In-Reply-To", "References"):
+                if old_msg.get(header):
+                    msg[header] = old_msg[header]
+        db.execute(
+            "INSERT INTO draft_origins VALUES(?,?,?,-1) ON CONFLICT(ref) DO UPDATE SET protected=-1",
+            (
+                account.email,
+                ref.model_dump_json(),
+                json.dumps([s.model_dump() for s in sources]),
+            ),
+        )
+        db.execute(
+            "INSERT INTO revisions VALUES(?,?,?,?,?,?,NULL)",
+            (*key, digest, str(msg["Message-ID"])),
+        )
+
+    for src in (letter.reply_to_message, letter.forward_message):
+        if src and src not in sources:
+            sources = [*sources, src]
+    result = save_draft(client, account, msg, sources, protected=2)
+    result["original"] = "check_original"
+
+    def record():
+        with database() as db:
+            db.execute(
+                "UPDATE revisions SET result=? WHERE email=? AND folder=? AND validity=? AND uid=?",
+                (json.dumps(result), *key),
+            )
+
+    record()
+    try:
+        mail.checked_folder(client, ref, account, write=True)
+        reply = removal.move_uids(client, [ref.uid], trash)
+        removal.record_move(account.email, trash, 1, reply)
+    except (IMAP4.error, OSError, Problem):
+        return result
+    result["original"] = "moved_to_trash"
+    record()
+    return result

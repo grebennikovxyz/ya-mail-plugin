@@ -6,7 +6,7 @@ jobs:
   verify:
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -15,6 +15,33 @@ jobs:
           python-version: "3.13"
       - run: python -m pip install . pytest
       - run: python -m pytest -q
+      - name: Exercise the phone setup form in Chromium and WebKit
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium webkit
+          python scripts/check_mobile.py
+      - run: python scripts/package.py
+      - uses: actions/setup-node@v4
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          node-version: '24'
+      - name: Test and pack the n8n community node
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: n8n
+        run: |
+          python scripts/export_catalog.py
+          git diff --exit-code -- nodes/YaMa/catalog.json
+          npm ci --ignore-scripts
+          npm test
+          python -m pip install trustme
+          python ../scripts/check_n8n_gateway.py
+          npm pack --pack-destination ../dist
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: integrations
+          path: dist/*.tgz
   package:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: verify
@@ -37,8 +64,14 @@ jobs:
           python scripts/package.py --windows-runtime $runtimePath
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           python scripts/check_windows_package.py
+      - uses: actions/download-artifact@v4
+        with:
+          name: integrations
+          path: dist
       - name: Attach packages to release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.whl dist/*.zip dist/SHA256SUMS.txt --verify-tag --title "Ya-Ma $GITHUB_REF_NAME" --notes "Отменяемая отправка с паузой 30 секунд, проверка получателя, подтверждение массового удаления, память каждого ящика и экономичный режим чтения. В архиве windows-x64 есть Python и мастер connect.cmd."
+        run: |
+          (cd dist && sha256sum *.whl *.zip *.tgz > SHA256SUMS.txt)
+          gh release create "$GITHUB_REF_NAME" dist/*.whl dist/*.zip dist/*.tgz dist/SHA256SUMS.txt --verify-tag --title "Ya-Ma $GITHUB_REF_NAME" --notes "Ленивый разбор, проверка версии, интеграции n8n, Claude Code и OpenClaw. В архиве windows-x64 есть Python и мастер connect.cmd."

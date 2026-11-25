@@ -1,0 +1,834 @@
+{
+  "list_accounts": {
+    "description": "List locally connected addresses and their access modes. For first connection run ya-mail connect.",
+    "fields": []
+  },
+  "version_status": {
+    "description": "Show installed and published stable versions. Refresh explicitly to check GitHub now.",
+    "fields": [
+      {
+        "name": "refresh",
+        "type": "boolean",
+        "default": false
+      }
+    ]
+  },
+  "lazy_digest": {
+    "description": "Read the local backlog digest. Continue with its run ID and next_offset for more items.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "run_id",
+        "type": "string"
+      },
+      {
+        "name": "offset",
+        "type": "integer",
+        "default": 0,
+        "minimum": 0
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "default": 20,
+        "minimum": 1,
+        "maximum": 100
+      }
+    ]
+  },
+  "lazy_run": {
+    "description": "Run owner-configured backlog cleanup with explicit message and token budgets. Moves uncertain mail to review and proposes ads for owner-confirmed Trash.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "max_messages",
+        "type": "integer",
+        "required": true,
+        "minimum": 1,
+        "maximum": 1000
+      },
+      {
+        "name": "token_budget",
+        "type": "integer",
+        "required": true,
+        "minimum": 512,
+        "maximum": 1000000
+      }
+    ]
+  },
+  "lazy_confirm_trash": {
+    "description": "Show a page of proposed advertisements and move only after interactive owner confirmation.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "default": 25,
+        "minimum": 1,
+        "maximum": 100
+      }
+    ]
+  },
+  "list_folders": {
+    "description": "Show folder rules, effective modes, roles and optional permitted counts for one mailbox.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "counts",
+        "type": "boolean",
+        "default": false
+      }
+    ]
+  },
+  "set_mailbox_name": {
+    "description": "Set the local display name. The full email address remains visible.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "required": true
+      }
+    ]
+  },
+  "set_folder_rule": {
+    "description": "Set a mailbox-local folder rule. Restoring access to a blocked branch requires interactive owner consent.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "folder",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "mode",
+        "type": "string",
+        "options": [
+          "priority",
+          "normal",
+          "skip",
+          "blocked",
+          "inherit"
+        ],
+        "required": true
+      }
+    ]
+  },
+  "search_messages": {
+    "description": "Search one explicit permitted folder or all active folders in priority order. Continue with next_before and identical filters.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "filters",
+        "type": "object",
+        "required": true
+      },
+      {
+        "name": "folder",
+        "type": "string"
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "default": 25,
+        "minimum": 1,
+        "maximum": 100
+      },
+      {
+        "name": "before",
+        "type": "object"
+      }
+    ]
+  },
+  "read_message": {
+    "description": "Read a message without marking it seen; list attachments and page through the body.",
+    "fields": [
+      {
+        "name": "ref",
+        "type": "object",
+        "required": true
+      },
+      {
+        "name": "offset",
+        "type": "integer",
+        "default": 0,
+        "minimum": 0
+      },
+      {
+        "name": "count",
+        "type": "integer",
+        "default": 4000,
+        "minimum": 1,
+        "maximum": 60000
+      }
+    ]
+  },
+  "read_messages": {
+    "description": "Read a batch from one account with a body preview for each message.",
+    "fields": [
+      {
+        "name": "refs",
+        "type": "array",
+        "required": true
+      }
+    ]
+  },
+  "read_thread": {
+    "description": "Find related messages by RFC Message-ID, In-Reply-To and References. Repeat with identical arguments while index_complete is false. Read selected bodies with read_messages.",
+    "fields": [
+      {
+        "name": "ref",
+        "type": "object",
+        "required": true
+      },
+      {
+        "name": "folder",
+        "type": "string"
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "default": 40,
+        "minimum": 1,
+        "maximum": 100
+      }
+    ]
+  },
+  "read_attachment": {
+    "description": "Read a MIME attachment in base64 chunks. Offset and count are bytes before encoding.",
+    "fields": [
+      {
+        "name": "ref",
+        "type": "object",
+        "required": true
+      },
+      {
+        "name": "part",
+        "type": "integer",
+        "required": true,
+        "minimum": 1
+      },
+      {
+        "name": "offset",
+        "type": "integer",
+        "default": 0,
+        "minimum": 0
+      },
+      {
+        "name": "count",
+        "type": "integer",
+        "default": 65536,
+        "minimum": 1,
+        "maximum": 524288
+      }
+    ]
+  },
+  "route_attachments": {
+    "description": "Match any owner-selected phrase in subject/body. An explicit [] matches all mail.",
+    "fields": [
+      {
+        "name": "ref",
+        "type": "object",
+        "required": true
+      },
+      {
+        "name": "disk_owner_uid",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "disk_folder",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "phrases",
+        "type": "array",
+        "required": true
+      },
+      {
+        "name": "preview",
+        "type": "boolean",
+        "default": true
+      },
+      {
+        "name": "deadline",
+        "type": "object"
+      }
+    ]
+  },
+  "list_labels": {
+    "description": "List IMAP keywords and registered labels. Unsupported IMAP keywords are stored locally.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "folder",
+        "type": "string",
+        "default": "INBOX"
+      }
+    ]
+  },
+  "count_messages": {
+    "description": "Count total and unread matches. A Message-ID filter reads identifier headers only.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "filters",
+        "type": "object",
+        "required": true
+      },
+      {
+        "name": "folder",
+        "type": "string",
+        "default": "INBOX"
+      }
+    ]
+  },
+  "create_label": {
+    "description": "Register an IMAP label name for this account. Applying it writes the keyword to actual messages.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "required": true
+      }
+    ]
+  },
+  "modify_messages": {
+    "description": "Apply or remove labels, mark read/unread, star/unstar up to 100 selected messages in one folder.",
+    "fields": [
+      {
+        "name": "refs",
+        "type": "array",
+        "required": true
+      },
+      {
+        "name": "changes",
+        "type": "object",
+        "required": true
+      }
+    ]
+  },
+  "create_folder": {
+    "description": "Create a mailbox folder.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "folder",
+        "type": "string",
+        "required": true
+      }
+    ]
+  },
+  "move_messages": {
+    "description": "Move a selected batch in one folder, archive, or move to Trash. Choose either an exact folder or a system role. No mailbox-wide expunge.",
+    "fields": [
+      {
+        "name": "refs",
+        "type": "array",
+        "required": true
+      },
+      {
+        "name": "folder",
+        "type": "string"
+      },
+      {
+        "name": "role",
+        "type": "string",
+        "options": [
+          "archive",
+          "trash",
+          "spam",
+          "drafts",
+          "sent"
+        ]
+      }
+    ]
+  },
+  "cleanup_folder": {
+    "description": "Permanently clean the verified system folder on owner request or owner-configured schedule.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "role",
+        "type": "string",
+        "options": [
+          "spam",
+          "trash",
+          "drafts"
+        ],
+        "required": true
+      },
+      {
+        "name": "days",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 36500
+      }
+    ]
+  },
+  "list_drafts": {
+    "description": "List saved drafts, newest UIDs first.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "default": 25,
+        "minimum": 1,
+        "maximum": 100
+      },
+      {
+        "name": "before",
+        "type": "object"
+      }
+    ]
+  },
+  "prepare_reply": {
+    "description": "Create a reply draft, using the receiving mailbox unless the user explicitly selects another sender.",
+    "fields": [
+      {
+        "name": "ref",
+        "type": "object",
+        "required": true
+      },
+      {
+        "name": "text",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "from_account",
+        "type": "string"
+      }
+    ]
+  },
+  "create_draft": {
+    "description": "Save a server-side draft, reply or forward, with optional MIME attachments. Does not send.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "letter",
+        "type": "object",
+        "required": true
+      }
+    ]
+  },
+  "update_draft": {
+    "description": "Replace a saved draft with a new version. Use edit_queued_email for a queued draft.",
+    "fields": [
+      {
+        "name": "ref",
+        "type": "object",
+        "required": true
+      },
+      {
+        "name": "letter",
+        "type": "object",
+        "required": true
+      }
+    ]
+  },
+  "send_email": {
+    "description": "Queue an explicitly requested letter, with a 30-second undo window. Retry with the same request_id.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "request_id",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "letter",
+        "type": "object",
+        "required": true
+      }
+    ]
+  },
+  "send_draft": {
+    "description": "Queue this immutable draft once. A corrected draft has a new UID and a fresh undo window.",
+    "fields": [
+      {
+        "name": "ref",
+        "type": "object",
+        "required": true
+      }
+    ]
+  },
+  "list_outbox": {
+    "description": "Show queued, stopped, accepted and uncertain sends across chats.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "job_id",
+        "type": "string"
+      }
+    ]
+  },
+  "cancel_send": {
+    "description": "Stop a queued message immediately. SMTP takeover makes cancellation unavailable.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "job_id",
+        "type": "string",
+        "required": true
+      }
+    ]
+  },
+  "edit_queued_email": {
+    "description": "Stop first, then save an editable IMAP draft. Sending again requires an explicit send_draft.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "job_id",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "subject",
+        "type": "string"
+      },
+      {
+        "name": "text",
+        "type": "string"
+      },
+      {
+        "name": "to",
+        "type": "array"
+      },
+      {
+        "name": "cc",
+        "type": "array"
+      },
+      {
+        "name": "bcc",
+        "type": "array"
+      }
+    ]
+  },
+  "mail_learning": {
+    "description": "Inspect or change learning for one mailbox.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "mode",
+        "type": "string",
+        "options": [
+          "off",
+          "contacts",
+          "contacts_and_facts"
+        ]
+      }
+    ]
+  },
+  "resolve_recipient": {
+    "description": "Look up a name, alias or address, consulting permitted Sent headers from the last 90 days. Ask the owner when needs_choice.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "query",
+        "type": "string",
+        "required": true
+      }
+    ]
+  },
+  "set_contact_alias": {
+    "description": "Add a user-verified name and trusted address to the selected mailbox.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "email",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "alias",
+        "type": "string",
+        "required": true
+      }
+    ]
+  },
+  "save_mail_fact": {
+    "description": "Save or correct a dated fact from a permitted source. Include a short verbatim quote to verify evidence.",
+    "fields": [
+      {
+        "name": "ref",
+        "type": "object",
+        "required": true
+      },
+      {
+        "name": "category",
+        "type": "string",
+        "options": [
+          "preference",
+          "specification",
+          "deadline",
+          "context"
+        ],
+        "required": true
+      },
+      {
+        "name": "fact",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "correspondent",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "fact_date",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "evidence_quote",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "replaces_id",
+        "type": "integer"
+      }
+    ]
+  },
+  "recall_mail_memory": {
+    "description": "Return up to 20 relevant contact or fact records with source links.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "query",
+        "type": "string",
+        "required": true
+      }
+    ]
+  },
+  "export_mail_memory": {
+    "description": "Rebuild the managed mail-memory.md and JSONL for this mailbox and return their local paths.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      }
+    ]
+  },
+  "forget_mail_memory": {
+    "description": "Forget one fact or correspondent in this mailbox on the owner's request.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "fact_id",
+        "type": "integer"
+      },
+      {
+        "name": "contact_address",
+        "type": "string"
+      }
+    ]
+  },
+  "poll_new": {
+    "description": "Read the next unacknowledged batch for a named schedule. First call starts at current UIDNEXT unless include_existing. Same batch may be redelivered until acknowledged.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "feed",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "folder",
+        "type": "string",
+        "default": "INBOX"
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "default": 25,
+        "minimum": 1,
+        "maximum": 100
+      },
+      {
+        "name": "include_existing",
+        "type": "boolean",
+        "default": false
+      }
+    ]
+  },
+  "mailbox_overview": {
+    "description": "Group messages by receiving account and folder, priority folders first. Omit scopes for all accounts.",
+    "fields": [
+      {
+        "name": "scopes",
+        "type": "array"
+      },
+      {
+        "name": "filters",
+        "type": "object"
+      },
+      {
+        "name": "limit_per_folder",
+        "type": "integer",
+        "default": 5,
+        "minimum": 1,
+        "maximum": 100
+      }
+    ]
+  },
+  "poll_mailboxes": {
+    "description": "Poll each selected mailbox's active folders. Acknowledge each successful folder receipt separately.",
+    "fields": [
+      {
+        "name": "feed",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "scopes",
+        "type": "array",
+        "required": true
+      },
+      {
+        "name": "limit_per_folder",
+        "type": "integer",
+        "default": 10,
+        "minimum": 1,
+        "maximum": 100
+      },
+      {
+        "name": "include_existing",
+        "type": "boolean",
+        "default": false
+      }
+    ]
+  },
+  "acknowledge_batch": {
+    "description": "Commit the batch after successful processing. A stale or repeated receipt cannot skip a newer batch.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "feed",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "receipt",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "folder",
+        "type": "string",
+        "default": "INBOX"
+      }
+    ]
+  }
+}

@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import json
 import re
 from datetime import date
 from itertools import groupby, islice
@@ -49,7 +50,99 @@ Scopes = Annotated[list[MailboxScope], Field(min_length=1, max_length=100)]
 @mcp.tool(annotations=READ)
 def list_accounts() -> dict:
     """List locally connected addresses and their access modes. For first connection run ya-mail connect."""
-    return {"accounts": profiles(), "setup": "ya-mail connect"}
+    from .updates import notice
+
+    result = {"accounts": profiles(), "setup": "ya-mail connect"}
+    update = notice()
+    if update:
+        result["plugin_update"] = update
+    return result
+
+
+@mcp.tool(annotations=READ)
+def version_status(refresh: bool = False) -> dict:
+    """Show installed and published stable versions. Refresh explicitly to check GitHub now."""
+    from . import updates
+
+    if refresh:
+        return updates.check(force=True)
+    with database() as db:
+        return updates.state(db)
+
+
+@mcp.tool(annotations=READ)
+def lazy_digest(
+    account: Short,
+    run_id: Short | None = None,
+    offset: Annotated[int, Field(ge=0)] = 0,
+    limit: PageSize = 20,
+) -> dict:
+    """Read the local backlog digest. Continue with its run ID and next_offset for more items."""
+    from .lazy_worker import digest
+
+    return digest(account, run_id, offset, limit)
+
+
+@mcp.tool(annotations=WRITE)
+async def lazy_run(
+    account: Short,
+    max_messages: Annotated[int, Field(ge=1, le=1000)],
+    token_budget: Annotated[int, Field(ge=512, le=1000000)],
+    ctx: Context,
+) -> dict:
+    """Run owner-configured backlog cleanup with explicit message and token budgets. Moves uncertain mail to review and proposes ads for owner-confirmed Trash."""
+    from mcp import types
+
+    from . import lazy_codex, lazy_store, lazy_worker
+
+    acc = current(account, "organize")
+    rules = lazy_store.policies().get(acc.email)
+    if not rules:
+        raise Problem("Сначала пройдите ya-mail lazy setup.")
+    if not ctx.session.check_client_capability(
+        types.ClientCapabilities(sampling=types.SamplingCapability())
+    ):
+        # Clients without MCP sampling can still use the local configured Codex classifier.
+        from .lazy_cli import manual
+
+        return await manual(acc.email, max_messages, token_budget)
+
+    async def classify(item):
+        response = await ctx.session.create_message(
+            [
+                types.SamplingMessage(
+                    role="user",
+                    content=types.TextContent(
+                        type="text", text=lazy_codex.prompt(item)
+                    ),
+                )
+            ],
+            max_tokens=192 * len(item),
+            include_context="none",
+            temperature=0,
+            model_preferences=types.ModelPreferences(costPriority=1, speedPriority=0.8),
+        )
+        try:
+            return json.loads(response.content.text)
+        except (ValueError, AttributeError):
+            return {}
+
+    return await lazy_worker.run(
+        {acc.email: rules},
+        classify,
+        max_messages=max_messages,
+        token_budget=token_budget,
+    )
+
+
+@mcp.tool(annotations=WRITE)
+async def lazy_confirm_trash(
+    account: Short, run_id: Short, ctx: Context, limit: PageSize = 25
+) -> dict:
+    """Show a page of proposed advertisements and move only after interactive owner confirmation."""
+    from .lazy_worker import confirm_trash
+
+    return await confirm_trash(account, run_id, limit, ctx)
 
 
 @mcp.tool(annotations=READ)
@@ -96,7 +189,10 @@ async def set_folder_rule(
         )
         if consent.action != "accept" or not consent.data.allow_access:
             raise Problem("Запрет сохранён.")
-    policy.update(acc.email, folder, item["delimiter"], mode, item["rule"])
+    from .lazy_store import policy_lock
+
+    with policy_lock():
+        policy.update(acc.email, folder, item["delimiter"], mode, item["rule"])
     refresh_managed(acc)
     return {"account": acc.email, "folder": folder, "rule": mode}
 
@@ -283,7 +379,7 @@ def route_attachments(
 
 @mcp.tool(annotations=READ)
 def list_labels(account: Short, folder: Short = "INBOX") -> dict:
-    """List IMAP keywords visible in a folder and label names registered with this plugin."""
+    """List IMAP keywords and registered labels. Unsupported IMAP keywords are stored locally."""
     acc = current(account)
     with mailbox(acc) as client:
         policy.allow(acc.email, folder, client)
@@ -411,6 +507,16 @@ def create_draft(account: Short, letter: outbox.Letter) -> dict:
     acc = current(account, "organize")
     with mailbox(acc) as client:
         return outbox.draft(client, acc, letter)
+
+
+@mcp.tool(annotations=WRITE)
+def update_draft(ref: Ref, letter: outbox.Letter) -> dict:
+    """Replace a saved draft with a new version. Use edit_queued_email for a queued draft."""
+    acc = current(ref.account, "organize")
+    sources = delivery.origins(ref)
+    delivery.allowed(sources)
+    with mailbox(acc) as client:
+        return outbox.revise(client, acc, ref, letter, sources)
 
 
 @mcp.tool(annotations=WRITE)

@@ -188,8 +188,16 @@ def test_batch_flags_are_real_and_round_trip(env):
     server.modify_messages(refs, mail.Changes(remove_labels=["orders"]))
     assert b"orders" not in b.flags[1]
     b.permanent = ()
-    with pytest.raises(accounts.Problem):
-        server.modify_messages(refs, mail.Changes(add_labels=["more"]))
+    changed = server.modify_messages(refs, mail.Changes(add_labels=["more"]))
+    assert changed[0]["local_labels"] == ["more"] and b"more" not in b.flags[1]
+    assert (
+        len(
+            server.search_messages(a.email, mail.Filter(label="more"), "INBOX")[
+                "messages"
+            ]
+        )
+        == 2
+    )
 
 
 def test_move_reject_mixed_refs_before_change(env):

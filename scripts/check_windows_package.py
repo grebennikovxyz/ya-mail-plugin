@@ -30,7 +30,7 @@ async def verify(folder):
         assert args == ["-I", "-B", "-m", "ya_mail.cli", "serve"]
         bootstrap = (
             "import sys,runpy; from pathlib import Path; import ya_mail.accounts as a; "
-            "a.DATA=Path(sys.argv.pop(1)); runpy.run_module('ya_mail.cli',run_name='__main__')"
+            "import ya_mail.updates as u; u.start=lambda:None; a.DATA=Path(sys.argv.pop(1)); runpy.run_module('ya_mail.cli',run_name='__main__')"
         )
         params = StdioServerParameters(
             command=str(command),
@@ -50,6 +50,10 @@ async def verify(folder):
                 "modify_messages",
                 "send_email",
                 "cancel_send",
+                "lazy_run",
+                "version_status",
+                "update_draft",
+                "lazy_confirm_trash",
                 "edit_queued_email",
                 "cleanup_folder",
                 "resolve_recipient",

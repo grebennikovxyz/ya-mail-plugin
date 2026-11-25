@@ -61,10 +61,21 @@ def database():
         db.executescript("""
             CREATE TABLE IF NOT EXISTS accounts(
                 email TEXT PRIMARY KEY, mode TEXT NOT NULL, secret TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS release_checks(
+                id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL DEFAULT 1,
+                attempt INTEGER NOT NULL DEFAULT 0, success INTEGER, latest TEXT,
+                failed INTEGER NOT NULL DEFAULT 0, notified TEXT);
             CREATE TABLE IF NOT EXISTS feeds(
                 email TEXT REFERENCES accounts(email) ON DELETE CASCADE, folder TEXT, name TEXT,
                 validity INTEGER NOT NULL, position INTEGER NOT NULL, batch_end INTEGER, receipt TEXT,
                 PRIMARY KEY(email, folder, name));
+            CREATE TABLE IF NOT EXISTS revisions(
+                email TEXT REFERENCES accounts(email) ON DELETE CASCADE, folder TEXT,
+                validity INTEGER, uid INTEGER, digest TEXT NOT NULL, message_id TEXT NOT NULL,
+                result TEXT, PRIMARY KEY(email,folder,validity,uid));
+            CREATE TABLE IF NOT EXISTS local_tags(
+                email TEXT REFERENCES accounts(email) ON DELETE CASCADE, flag TEXT COLLATE NOCASE,
+                identity TEXT, PRIMARY KEY(email,flag,identity));
             CREATE TABLE IF NOT EXISTS sends(
                 email TEXT REFERENCES accounts(email) ON DELETE CASCADE, request TEXT, digest TEXT,
                 message_id TEXT, result TEXT, PRIMARY KEY(email,request));
@@ -203,3 +214,7 @@ def forget(email):
             db.execute("DELETE FROM accounts WHERE email=?", (email,))
             if vault().get_password(SERVICE, row["secret"]) is not None:
                 vault().delete_password(SERVICE, row["secret"])
+
+    from .lazy_store import skill_path
+
+    skill_path(email).unlink(missing_ok=True)

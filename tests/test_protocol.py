@@ -103,7 +103,7 @@ def test_manifest_stdio_handshake(server_name, tmp_path):
     env = {**os.environ, "PYTHONUTF8": "1"}
     # Windows platformdirs can use Known Folder APIs rather than LOCALAPPDATA.
     # Isolate the test store directly so CI never queries an actual user vault.
-    bootstrap = "from pathlib import Path; import ya_mail.accounts as a; a.DATA=Path(__import__('sys').argv.pop(1)); from ya_mail.cli import main; main()"
+    bootstrap = "from pathlib import Path; import ya_mail.accounts as a; a.DATA=Path(__import__('sys').argv.pop(1)); import ya_mail.updates as u; u.start=lambda:None; from ya_mail.cli import main; main()"
 
     async def check():
         params = StdioServerParameters(

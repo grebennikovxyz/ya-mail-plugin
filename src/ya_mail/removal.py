@@ -94,6 +94,21 @@ def record_move(email, dest, count, reply):
             )
 
 
+async def confirm_snapshot(ctx, email, dest, snapshot):
+    lines = [
+        f"Переместить перечисленные письма? Ящик {email}. Папка назначения {printable(dest)}."
+    ]
+    for ref, sender, date, subject in snapshot:
+        lines.append(
+            " · ".join(
+                map(printable, (ref["folder"], ref["uid"], sender, date, subject))
+            )
+        )
+    response = await ctx.elicit("\n".join(lines), ConfirmTrash)
+    if response.action != "accept" or not response.data.move_listed_messages_to_trash:
+        raise Problem("Письма сохранены.")
+
+
 async def move(refs, folder, role, ctx, connect):
     if bool(folder) == bool(role):
         raise Problem("Укажите имя папки или её роль.")
@@ -107,21 +122,7 @@ async def move(refs, folder, role, ctx, connect):
         dest, snapshot, sensitive = inspect(client, acc, groups, folder, role)
         needs_consent = len(snapshot) > 1 and sensitive
     if needs_consent:
-        lines = [
-            f"Переместить перечисленные письма? Ящик {acc.email}. Папка назначения {printable(dest)}."
-        ]
-        for ref, sender, date, subject in snapshot:
-            lines.append(
-                " · ".join(
-                    map(printable, (ref["folder"], ref["uid"], sender, date, subject))
-                )
-            )
-        response = await ctx.elicit("\n".join(lines), ConfirmTrash)
-        if (
-            response.action != "accept"
-            or not response.data.move_listed_messages_to_trash
-        ):
-            raise Problem("Письма сохранены.")
+        await confirm_snapshot(ctx, acc.email, dest, snapshot)
     with connect(current(acc.email, "organize")) as client:
         if inspect(client, acc, groups, folder, role) != (dest, snapshot, sensitive):
             raise Problem("Выборка изменилась. Повторите поиск.")

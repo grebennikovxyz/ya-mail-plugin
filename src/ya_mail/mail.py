@@ -37,6 +37,11 @@ class Filter(BaseModel):
     model_config = ConfigDict(extra="forbid")
     sender: Short | None = None
     recipient: Short | None = None
+    cc: Short | None = None
+    bcc: Short | None = None
+    larger_than: Number | None = None
+    smaller_than: Number | None = None
+    has_attachment: bool | None = None
     subject: Short | None = None
     text: Short | None = None
     message_id: Short | None = None
@@ -51,6 +56,8 @@ class Filter(BaseModel):
         for key, value in (
             ("FROM", self.sender),
             ("TO", self.recipient),
+            ("CC", self.cc),
+            ("BCC", self.bcc),
             ("SUBJECT", self.subject),
             ("TEXT", self.text),
         ):
@@ -60,6 +67,12 @@ class Filter(BaseModel):
             terms.extend(["SINCE", self.since])
         if self.before:
             terms.extend(["BEFORE", self.before])
+        for term, size in (
+            ("LARGER", self.larger_than),
+            ("SMALLER", self.smaller_than),
+        ):
+            if size is not None:
+                terms.extend([term, str(size)])
         if self.unread is not None:
             terms.append("UNSEEN" if self.unread else "SEEN")
         if self.starred is not None:
@@ -161,12 +174,39 @@ def identifier_rows(client, uids):
 
 
 def matching_uids(client, account, folder, validity, filters, extra=()):
-    uids = sorted(
-        client.search([*filters.criteria(), *extra], charset="UTF-8"), reverse=True
+    # A folder can accept server keywords, local tags, or both after a capability change.
+    criteria = (
+        filters.model_copy(update={"label": None}).criteria()
+        if filters.label
+        else filters.criteria()
     )
-    if filters.message_id:
-        value = filters.message_id.strip()
-        wanted = value if value.startswith("<") else f"<{value}>"
+    uids = sorted(client.search([*criteria, *extra], charset="UTF-8"), reverse=True)
+    identities = set()
+    if filters.label:
+        flag = keyword(filters.label)
+        info = client.select_folder(folder, readonly=True)
+        if info[b"UIDVALIDITY"] != validity:
+            raise Problem("Папка изменилась. Повторите поиск.")
+        advertised = {
+            f.decode().lower()
+            for f in (*info.get(b"FLAGS", ()), *info.get(b"PERMANENTFLAGS", ()))
+        }
+        server_ids = (
+            set(client.search(["UNDELETED", "KEYWORD", flag]))
+            if (flag.lower() in advertised or r"\*" in advertised)
+            else set()
+        )
+        with database() as db:
+            identities = {
+                r[0]
+                for r in db.execute(
+                    "SELECT identity FROM local_tags WHERE email=? AND flag=?",
+                    (account.email, flag.lower()),
+                )
+            }
+        if not identities:
+            uids = [uid for uid in uids if uid in server_ids]
+    if filters.message_id or identities:
         cached, _, remaining = indexed_headers(
             client, account, folder, validity, uids, 2 * THREAD_BATCH
         )
@@ -174,13 +214,91 @@ def matching_uids(client, account, folder, validity, filters, extra=()):
             raise Problem(
                 f"Продолжается точный поиск. Осталось проверить {remaining} заголовков в папке. Повторите вызов с теми же параметрами."
             )
-        digest = header_hash(wanted)
-        return (uid for uid in uids if cached.get(uid, "").partition(" ")[0] == digest)
+        if identities:
+            uids = [
+                uid
+                for uid in uids
+                if uid in server_ids
+                or tag_identity(
+                    cached.get(uid, "").partition(" ")[0], folder, validity, uid
+                )
+                in identities
+            ]
+        if filters.message_id:
+            value = filters.message_id.strip()
+            wanted = value if value.startswith("<") else f"<{value}>"
+            digest = header_hash(wanted)
+            uids = [
+                uid for uid in uids if cached.get(uid, "").partition(" ")[0] == digest
+            ]
+    if filters.has_attachment is not None:
+        return filter_attachments(client, uids, filters.has_attachment)
     return iter(uids)
 
 
 def header_hash(value):
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+def tag_identity(digest, folder, validity, uid):
+    return digest if digest and digest != "-" else f"uid:{validity}:{uid}:{folder}"
+
+
+def local_labels(email, identities):
+    keys = list(set(identities))
+    if not keys:
+        return {}
+    with database() as db:
+        slots = ",".join("?" for _ in keys)
+        rows = db.execute(
+            f"SELECT identity,flag FROM local_tags WHERE email=? AND identity IN ({slots}) ORDER BY flag",
+            [email, *keys],
+        )
+        by_key = {}
+        for key, flag in rows:
+            by_key.setdefault(key, []).append(label_name(flag.encode()))
+    return by_key
+
+
+def has_attachment(structure):
+    """Inspect IMAP BODYSTRUCTURE metadata without fetching message content."""
+    multipart = isinstance(structure[0], list)
+    if multipart:
+        params = structure[2] if len(structure) > 2 else None
+        disposition_index = 3
+    else:
+        params = structure[2]
+        mime = (structure[0].upper(), structure[1].upper())
+        disposition_index = 9 if mime[0] == b"TEXT" else 8
+        if mime == (b"MESSAGE", b"RFC822"):
+            return True
+    disposition = (
+        structure[disposition_index] if len(structure) > disposition_index else None
+    )
+    if disposition and disposition[0].upper() == b"ATTACHMENT":
+        return True
+    for attributes in (
+        params,
+        disposition[1] if disposition and len(disposition) > 1 else None,
+    ):
+        if attributes and any(
+            name.upper().split(b"*")[0] in (b"NAME", b"FILENAME")
+            for name in attributes[::2]
+        ):
+            return True
+    return multipart and any(has_attachment(part) for part in structure[0])
+
+
+def filter_attachments(client, uids, wanted):
+    for batch in batched(uids, 50):
+        rows = client.fetch(batch, ["BODYSTRUCTURE"])
+        for uid in batch:
+            if uid in rows:
+                structure = rows[uid].get(b"BODYSTRUCTURE")
+                if not structure:
+                    raise Problem("Сервер не вернул структуру вложений.")
+                if has_attachment(structure) == wanted:
+                    yield uid
 
 
 def indexed_headers(client, account, folder, validity, uids, budget):
@@ -322,6 +440,21 @@ def summaries(client, account, folder, validity, uids):
                 "bytes": row.get(b"RFC822.SIZE"),
             }
         )
+    keys = []
+    for item in result:
+        mid = re.search(r"<[^<>\s]+>", item["Message-ID"])
+        keys.append(
+            tag_identity(
+                header_hash(mid[0]) if mid else None,
+                folder,
+                validity,
+                item["ref"]["uid"],
+            )
+        )
+    labels = local_labels(account.email, keys)
+    for item, key in zip(result, keys):
+        item["local_labels"] = labels.get(key, [])
+        item["labels"] = sorted(set(item["labels"] + item["local_labels"]))
     knowledge.refresh_export(client, account)
     return result
 
@@ -499,6 +632,18 @@ def modify(client, account, refs, changes):
     info = checked_folder(client, first, account, write=True)
     add, remove = changes.flags()
     allowed = {flag.decode().lower() for flag in info.get(b"PERMANENTFLAGS", ())}
+
+    def local_only(flag):
+        return (
+            not flag.startswith("\\")
+            and flag.lower() not in allowed
+            and r"\*" not in allowed
+        )
+
+    local_add = [flag for flag in add if local_only(flag)]
+    local_remove = [keyword(name).lower() for name in changes.remove_labels]
+    add = [flag for flag in add if not local_only(flag)]
+    remove = [flag for flag in remove if not local_only(flag)]
     for flag in add + remove:
         if flag.lower() not in allowed and (
             flag.startswith("\\") or r"\*" not in allowed
@@ -509,6 +654,14 @@ def modify(client, account, refs, changes):
     uids = sorted({r.uid for r in refs})
     if set(client.get_flags(uids)) != set(uids):
         raise Problem("Часть писем уже перемещена. Обновите подборку.")
+    keys = {}
+    if changes.add_labels or changes.remove_labels:
+        for uid, hashes in identifier_rows(client, uids):
+            keys[uid] = tag_identity(
+                hashes.partition(" ")[0], first.folder, first.validity, uid
+            )
+        if len(keys) != len(uids):
+            raise Problem("Часть писем уже перемещена. Обновите подборку.")
     if add:
         client.add_flags(uids, add, silent=True)
     if remove:
@@ -526,6 +679,28 @@ def modify(client, account, refs, changes):
                 "Сервер не подтвердил все флаги. Прочитайте их состояние перед повтором."
             )
         changed.append({"uid": uid, **flags_view(actual[uid])})
+    if keys:
+        with database() as db:
+            db.executemany(
+                "DELETE FROM local_tags WHERE email=? AND flag=? AND identity=?",
+                [
+                    (account.email, flag, key)
+                    for key in keys.values()
+                    for flag in local_remove
+                ],
+            )
+            db.executemany(
+                "INSERT OR IGNORE INTO local_tags VALUES(?,?,?)",
+                [
+                    (account.email, flag, key)
+                    for key in keys.values()
+                    for flag in local_add
+                ],
+            )
+        labels = local_labels(account.email, keys.values())
+        for row in changed:
+            row["local_labels"] = labels.get(keys[row["uid"]], [])
+            row["labels"] = sorted(set(row["labels"] + row["local_labels"]))
     return changed
 
 

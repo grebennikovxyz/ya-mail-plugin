@@ -6,3 +6,7 @@ Ya-Ma is an independent integration for Yandex Mail. Yandex is a trademark
 of YANDEX LLC. The original envelope and .msg artwork was generated for
 this project and is distributed with the project under Apache-2.0.
 Yandex Mail terms: https://yandex.ru/legal/mail_termsofuse/ru/
+
+Backlog triage and client adapters were adapted from Ma-Ru 0.3.0.
+Copyright 2026 Антон Геннадьевич Гребенников, Apache License 2.0.
+https://github.com/grebennikovxyz/ma-ru-plugin
