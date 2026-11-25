@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import re
+from datetime import date
 from itertools import groupby, islice
 from typing import Annotated, Literal
 from uuid import UUID
@@ -10,8 +11,9 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import feeds, folders as policy, mail, outbox, routing
-from .accounts import Problem, current, database, profiles
+from . import delivery, feeds, knowledge, mail, outbox, removal, routing
+from . import folders as policy
+from .accounts import Problem, address, current, database, profiles
 from .mail import Changes, Filter, PageSize, Ref, Short, checked_folder, special
 from .transport import mailbox
 
@@ -35,6 +37,10 @@ class UnblockConfirmation(BaseModel):
     allow_access: bool = Field(
         description="Разрешить доступ к этой папке и её подпапкам"
     )
+
+
+class AliasConfirmation(BaseModel):
+    trust_address: bool = Field(title="Сохранить соответствие имени и адреса")
 
 
 Scopes = Annotated[list[MailboxScope], Field(min_length=1, max_length=100)]
@@ -91,6 +97,7 @@ async def set_folder_rule(
         if consent.action != "accept" or not consent.data.allow_access:
             raise Problem("Запрет сохранён.")
     policy.update(acc.email, folder, item["delimiter"], mode, item["rule"])
+    refresh_managed(acc)
     return {"account": acc.email, "folder": folder, "rule": mode}
 
 
@@ -139,7 +146,7 @@ def search_messages(
 def read_message(
     ref: Ref,
     offset: Annotated[int, Field(ge=0)] = 0,
-    count: Annotated[int, Field(ge=1, le=60000)] = 24000,
+    count: Annotated[int, Field(ge=1, le=60000)] = 4000,
 ) -> dict:
     """Read a message without marking it seen; list attachments and page through the body."""
     acc = current(ref.account)
@@ -345,46 +352,24 @@ def create_folder(account: Short, folder: Short) -> dict:
 
 
 @mcp.tool(annotations=WRITE)
-def move_messages(
+async def move_messages(
     refs: Refs,
+    ctx: Context,
     folder: Short | None = None,
     role: Literal["archive", "trash", "spam", "drafts", "sent"] | None = None,
 ) -> dict:
     """Move a selected batch in one folder, archive, or move to Trash. Choose either an exact folder or a system role. No mailbox-wide expunge."""
-    if bool(folder) == bool(role):
-        raise Problem("Укажите имя папки или её роль.")
-    first = refs[0]
-    acc = current(first.account, "organize")
-    if any(
-        (r.account, r.folder, r.validity)
-        != (first.account, first.folder, first.validity)
-        for r in refs
-    ):
-        raise Problem("Выберите письма одной папки одного ящика.")
-    with mailbox(acc) as client:
-        dest = folder or special(client, role)
-        policy.allow(acc.email, dest, client)
-        checked_folder(client, first, acc, write=True)
-        uids = sorted({r.uid for r in refs})
-        if set(client.get_flags(uids)) != set(uids):
-            raise Problem("Письма уже перемещены. Повторите поиск.")
-        if dest != first.folder:
-            if client.has_capability("MOVE"):
-                client.move(uids, dest)
-            elif client.has_capability("UIDPLUS"):
-                client.copy(uids, dest)
-                try:
-                    client.add_flags(uids, [r"\Deleted"], silent=True)
-                    client.uid_expunge(uids)
-                except Exception:
-                    raise Problem(
-                        "Копия уже создана. Проверьте обе папки перед повтором перемещения."
-                    ) from None
-            else:
-                raise Problem(
-                    "Сервер не поддерживает MOVE или UIDPLUS для точного перемещения."
-                )
-    return {"destination": dest, "uids": uids}
+    return await removal.move(refs, folder, role, ctx, mailbox)
+
+
+@mcp.tool(annotations=WRITE)
+def cleanup_folder(
+    account: Short,
+    role: Literal["spam", "trash", "drafts"],
+    days: Annotated[int, Field(ge=0, le=36500)] | None = None,
+) -> dict:
+    """Permanently clean the verified system folder on owner request or owner-configured schedule."""
+    return removal.cleanup(current(account, "organize"), role, days, mailbox)
 
 
 @mcp.tool(annotations=READ)
@@ -429,23 +414,185 @@ def create_draft(account: Short, letter: outbox.Letter) -> dict:
 
 
 @mcp.tool(annotations=WRITE)
-def send_email(account: Short, request_id: UUID, letter: outbox.Letter) -> dict:
-    """Send the explicitly requested letter by SMTP. Reuse the identical request_id when retrying; accepted addresses mean SMTP acceptance."""
+async def send_email(
+    account: Short, request_id: UUID, letter: outbox.Letter, ctx: Context
+) -> dict:
+    """Queue an explicitly requested letter, with a 30-second undo window. Retry with the same request_id."""
     acc = current(account, "send")
     with mailbox(acc) as client:
         msg = outbox.build(client, acc, letter)
-    return outbox.submit(acc, request_id, letter.model_dump_json().encode(), msg)
+        sources = [r for r in (letter.reply_to_message, letter.forward_message) if r]
+        return await delivery.enqueue(
+            acc,
+            request_id,
+            letter.model_dump_json().encode(),
+            msg,
+            sources,
+            None,
+            ctx,
+            client,
+        )
 
 
 @mcp.tool(annotations=WRITE)
-def send_draft(ref: Ref) -> dict:
-    """Send a reviewed draft once for this draft UID. The draft stays available for inspection or a subsequent move to Trash."""
+async def send_draft(ref: Ref, ctx: Context) -> dict:
+    """Queue this immutable draft once. A corrected draft has a new UID and a fresh undo window."""
     acc = current(ref.account, "send")
     with mailbox(acc) as client:
         if ref.folder != special(client, "drafts"):
             raise Problem("Выберите письмо из системной папки черновиков.")
         msg = mail.raw_message(client, ref, acc)
-    return outbox.submit(acc, "draft:" + ref.model_dump_json(), msg.as_bytes(), msg)
+        return await delivery.enqueue(
+            acc,
+            "draft:" + ref.model_dump_json(),
+            msg.as_bytes(),
+            msg,
+            [ref, *delivery.origins(ref)],
+            ref,
+            ctx,
+            client,
+        )
+
+
+@mcp.tool(annotations=READ)
+def list_outbox(account: Short, job_id: UUID | None = None) -> list[dict]:
+    """Show queued, stopped, accepted and uncertain sends across chats."""
+    return delivery.listing(current(account).email, str(job_id) if job_id else None)
+
+
+@mcp.tool(annotations=LOCAL)
+def cancel_send(account: Short, job_id: UUID) -> dict:
+    """Stop a queued message immediately. SMTP takeover makes cancellation unavailable."""
+    return delivery.stop(current(account).email, job_id)
+
+
+@mcp.tool(annotations=WRITE)
+def edit_queued_email(
+    account: Short,
+    job_id: UUID,
+    subject: Short | None = None,
+    text: Annotated[str, Field(max_length=500000)] | None = None,
+    to: outbox.Addresses | None = None,
+    cc: outbox.Addresses | None = None,
+    bcc: outbox.Addresses | None = None,
+) -> dict:
+    """Stop first, then save an editable IMAP draft. Sending again requires an explicit send_draft."""
+    return delivery.edit(
+        account,
+        job_id,
+        {"subject": subject, "text": text, "to": to, "cc": cc, "bcc": bcc},
+    )
+
+
+@mcp.tool(annotations=LOCAL)
+def mail_learning(account: Short, mode: knowledge.Mode | None = None) -> dict:
+    """Inspect or change learning for one mailbox."""
+    acc = current(account)
+    settings = knowledge.configure(acc.email, mode)
+    if mode:
+        refresh_managed(acc)
+    return settings
+
+
+def refresh_managed(acc):
+    with database() as db:
+        enabled = db.execute(
+            "SELECT 1 FROM memory_exports WHERE email=?", (acc.email,)
+        ).fetchone()
+    if enabled:
+        with mailbox(acc) as client:
+            knowledge.refresh_export(client, acc)
+
+
+@mcp.tool(annotations=READ)
+def resolve_recipient(account: Short, query: Short) -> dict:
+    """Look up a name, alias or address, consulting permitted Sent headers from the last 90 days. Ask the owner when needs_choice."""
+    acc = current(account)
+    with mailbox(acc) as client:
+        return knowledge.lookup(client, acc, query)
+
+
+@mcp.tool(annotations=LOCAL)
+async def set_contact_alias(
+    account: Short, email: Short, alias: Short, ctx: Context
+) -> dict:
+    """Add a user-verified name and trusted address to the selected mailbox."""
+    acc = current(account)
+    addr = address(email).lower()
+    response = await ctx.elicit(
+        f"Сохранить проверенный адрес {addr} для имени {alias} в ящике {acc.email}?",
+        AliasConfirmation,
+    )
+    if response.action != "accept" or not response.data.trust_address:
+        raise Problem("Адрес не сохранён.")
+    with database() as db:
+        db.execute("BEGIN IMMEDIATE")
+        if knowledge.mode(db, acc.email) == "off":
+            raise Problem("Для сохранения контактов включите память этого ящика.")
+        db.execute(
+            "DELETE FROM forgotten_contacts WHERE email=? AND addr=?", (acc.email, addr)
+        )
+        db.execute(
+            "INSERT OR IGNORE INTO contact_aliases VALUES(?,?,?)",
+            (acc.email, addr, alias),
+        )
+    refresh_managed(acc)
+    return {"account": acc.email, "address": addr, "alias": alias}
+
+
+@mcp.tool(annotations=LOCAL)
+def save_mail_fact(
+    ref: Ref,
+    category: knowledge.Category,
+    fact: Short,
+    correspondent: Short,
+    fact_date: date,
+    evidence_quote: Short,
+    replaces_id: int | None = None,
+) -> dict:
+    """Save or correct a dated fact from a permitted source. Include a short verbatim quote to verify evidence."""
+    acc = current(ref.account)
+    with mailbox(acc) as client:
+        result = knowledge.save_fact(
+            client,
+            acc,
+            ref,
+            category,
+            fact,
+            correspondent,
+            fact_date,
+            evidence_quote,
+            replaces_id,
+        )
+        knowledge.refresh_export(client, acc)
+        return result
+
+
+@mcp.tool(annotations=READ)
+def recall_mail_memory(account: Short, query: Short) -> dict:
+    """Return up to 20 relevant contact or fact records with source links."""
+    acc = current(account)
+    with mailbox(acc) as client:
+        return knowledge.recall(client, acc, query)
+
+
+@mcp.tool(annotations=LOCAL)
+def export_mail_memory(account: Short) -> dict:
+    """Rebuild the managed mail-memory.md and JSONL for this mailbox and return their local paths."""
+    acc = current(account)
+    with mailbox(acc) as client:
+        return knowledge.recall(client, acc, "", export=True)
+
+
+@mcp.tool(annotations=LOCAL)
+def forget_mail_memory(
+    account: Short, fact_id: int | None = None, contact_address: Short | None = None
+) -> dict:
+    """Forget one fact or correspondent in this mailbox on the owner's request."""
+    acc = current(account)
+    result = knowledge.forget(acc.email, fact_id, contact_address)
+    refresh_managed(acc)
+    return result
 
 
 @mcp.tool(

@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import re
+import time
 from datetime import date
 from email import policy
 from email.parser import BytesParser
@@ -9,8 +10,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .accounts import Problem, database
 from . import folders as folder_policy
+from .accounts import Problem, database
 
 Short = Annotated[
     str, Field(min_length=1, max_length=512, pattern=r"^[^\x00-\x1f\x7f]+$")
@@ -251,6 +252,47 @@ def summaries(client, account, folder, validity, uids):
     if not uids:
         return []
     rows = client.fetch(uids, [HEADER_PEEK, "FLAGS", "RFC822.SIZE"])
+    from . import knowledge
+
+    with database() as db:
+        registered = db.execute(
+            "SELECT 1 FROM accounts WHERE email=?", (account.email,)
+        ).fetchone()
+    catalog = folder_policy.catalog(client, account.email) if registered else []
+    with database() as db:
+        db.execute("BEGIN IMMEDIATE")
+        if folder in knowledge.visible(db, account.email, catalog):
+            db.executemany(
+                "INSERT OR IGNORE INTO observed_uids VALUES(?,?,?,?,?)",
+                [(account.email, folder, validity, uid, time.time()) for uid in rows],
+            )
+            roles = {
+                v.lower()
+                for item in catalog
+                if item["folder"] == folder
+                for v in item["roles"]
+            }
+            if knowledge.mode(db, account.email) != "off" and not roles.intersection(
+                {r"\drafts", r"\junk", r"\spam", r"\trash", r"\all"}
+            ):
+                for uid, row in rows.items():
+                    msg = fetched_headers(row)
+                    sent = r"\sent" in roles
+                    if not sent or [
+                        a for a, _ in knowledge.addresses(msg, ("From",))
+                    ] == [account.email]:
+                        knowledge.observe(
+                            db,
+                            account.email,
+                            Ref(
+                                account=account.email,
+                                folder=folder,
+                                validity=validity,
+                                uid=uid,
+                            ),
+                            msg,
+                            sent,
+                        )
     result = []
     for uid in uids:
         row = rows.get(uid)
@@ -280,6 +322,7 @@ def summaries(client, account, folder, validity, uids):
                 "bytes": row.get(b"RFC822.SIZE"),
             }
         )
+    knowledge.refresh_export(client, account)
     return result
 
 
@@ -393,9 +436,14 @@ def attachment_content(part):
 
 
 def read(client, account, ref, offset, count):
+    from .knowledge import refresh_export, remember_read
+
     msg = raw_message(client, ref, account)
     content, mime = body(msg)
+    memory = remember_read(client, account, ref, msg)
+    refresh_export(client, account)
     return {
+        "memory": memory,
         "ref": ref.model_dump(),
         "headers": {
             k: str(msg.get(k, ""))

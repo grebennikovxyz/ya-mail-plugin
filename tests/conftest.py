@@ -1,10 +1,14 @@
+import asyncio
+import time
 from contextlib import nullcontext
 from email import policy
 from email.message import EmailMessage
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
-from ya_mail import accounts, mail, server
+from ya_mail import accounts, delivery, mail, server
 
 EMAIL = "qa@example.org"
 
@@ -12,6 +16,29 @@ EMAIL = "qa@example.org"
 @pytest.fixture(autouse=True)
 def local_database(tmp_path, monkeypatch):
     monkeypatch.setattr(accounts, "DATA", tmp_path)
+    monkeypatch.setattr(delivery, "spawn", lambda job: None)
+    monkeypatch.setattr(delivery, "mailbox", lambda acc: server.mailbox(acc))
+
+
+def consent():
+    data = SimpleNamespace(
+        send_to_these_addresses=True, move_listed_messages_to_trash=True
+    )
+    return SimpleNamespace(
+        elicit=AsyncMock(return_value=SimpleNamespace(action="accept", data=data))
+    )
+
+
+def send_now(coroutine):
+    queued = asyncio.run(coroutine)
+    assert queued["state"] == "queued"
+    with accounts.database() as db:
+        db.execute("UPDATE delivery_jobs SET due=0 WHERE id=?", (queued["job_id"],))
+        row = db.execute(
+            "SELECT * FROM delivery_jobs WHERE id=?", (queued["job_id"],)
+        ).fetchone()
+    delivery.dispatch(row, time.time())
+    return server.list_outbox(queued["from"], queued["job_id"])[0]
 
 
 class Vault:

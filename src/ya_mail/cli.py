@@ -16,6 +16,13 @@ def main():
     )
     check.add_argument("account")
     actions.add_parser("serve", help="MCP через stdio")
+    worker = actions.add_parser("deliver", help=argparse.SUPPRESS)
+    worker.add_argument("job")
+    read = actions.add_parser(
+        "read", help="Экономичный разовый запуск Codex для чтения почты"
+    )
+    read.add_argument("--show-model", action="store_true")
+    read.add_argument("prompt", nargs="?")
     actions.add_parser(
         "connect-360", help="Дополнительный вход в официальный MCP Яндекс 360"
     )
@@ -28,9 +35,19 @@ def main():
     args = cli.parse_args()
     try:
         if args.action == "serve":
+            from .delivery import recover
             from .server import mcp
 
+            recover()
             mcp.run()
+        elif args.action == "deliver":
+            from .delivery import run
+
+            run(args.job)
+        elif args.action == "read":
+            from .economy import launch
+
+            raise SystemExit(launch(args.prompt, args.show_model))
         elif args.action in {"connect-360", "disconnect-360", "serve-360"}:
             from . import native
 

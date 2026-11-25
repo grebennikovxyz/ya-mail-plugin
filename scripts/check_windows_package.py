@@ -9,8 +9,10 @@ from zipfile import ZipFile
 
 async def verify(folder):
     import tkinter
+
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
+
     from ya_mail.accounts import vault
 
     assert tkinter.Tcl().eval("info patchlevel")
@@ -36,6 +38,11 @@ async def verify(folder):
                 "read_message",
                 "modify_messages",
                 "send_email",
+                "cancel_send",
+                "edit_queued_email",
+                "cleanup_folder",
+                "resolve_recipient",
+                "export_mail_memory",
             } <= names
             print(f"Standalone plugin returned {len(names)} tools.")
 

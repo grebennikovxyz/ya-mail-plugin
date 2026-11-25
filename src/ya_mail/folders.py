@@ -161,6 +161,9 @@ def update(email, folder, delimiter, mode, previous):
         ).fetchone()
         if (row[0] if row else None) != previous:
             raise Problem("Настройка уже изменилась. Обновите список папок.")
+        from .knowledge import invalidate_files
+
+        invalidate_files(email)
         if mode == "inherit":
             db.execute(
                 "DELETE FROM folder_rules WHERE email=? AND folder=?", (email, folder)
@@ -170,6 +173,28 @@ def update(email, folder, delimiter, mode, previous):
                 "INSERT INTO folder_rules VALUES(?,?,?,?) ON CONFLICT(email,folder) DO UPDATE SET mode=excluded.mode,delimiter=excluded.delimiter",
                 (email, folder, delimiter, mode),
             )
+
+
+def verified_role(client, role):
+    flags = {
+        "sent": {b"\\sent"},
+        "drafts": {b"\\drafts"},
+        "trash": {b"\\trash"},
+        "spam": {b"\\junk", b"\\spam"},
+    }[role]
+    listed = client.list_folders()
+    matches = {
+        name
+        for attrs, _, name in listed
+        if flags.intersection(a.lower() for a in attrs)
+    }
+    if not matches and client.has_capability("XLIST"):
+        matches = {
+            name
+            for attrs, _, name in client.xlist_folders()
+            if flags.intersection(a.lower() for a in attrs)
+        }
+    return next(iter(matches)) if len(matches) == 1 else None
 
 
 def native_guard():

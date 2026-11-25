@@ -33,10 +33,8 @@ WRITE = frozenset(
     [
         "create_draft",
         "update_draft",
-        "move_messages",
         "add_message_labels",
         "remove_message_labels",
-        "delete_message",
     ]
 )
 KEY = "official-360"

@@ -3,6 +3,7 @@ import hashlib
 import json
 import re
 import smtplib
+import time
 from email import policy
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
@@ -103,6 +104,11 @@ def build(client, account, letter, *, original=None):
 
 def draft(client, account, letter, *, original=None):
     msg = build(client, account, letter, original=original)
+    refs = [r for r in (letter.reply_to_message, letter.forward_message) if r]
+    return save_draft(client, account, msg, refs)
+
+
+def save_draft(client, account, msg, sources, protected=False):
     folder = special(client, "drafts")
     allow(account.email, folder, client)
     reply = client.append(folder, msg.as_bytes(), flags=[r"\Draft", r"\Seen"])
@@ -125,6 +131,26 @@ def draft(client, account, letter, *, original=None):
                 ref = Ref(**found["messages"][0]["ref"])
         except (IMAP4.error, OSError, Problem):
             pass
+    if ref:
+        with database() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO observed_uids VALUES(?,?,?,?,?)",
+                (account.email, ref.folder, ref.validity, ref.uid, time.time()),
+            )
+            db.execute(
+                "INSERT OR REPLACE INTO draft_origins VALUES (?,?,?,?)",
+                (
+                    account.email,
+                    ref.model_dump_json(),
+                    json.dumps([r.model_dump() for r in sources]),
+                    int(protected),
+                ),
+            )
+    elif protected or sources:
+        raise Problem(
+            "Черновик сохранён, но сервер не подтвердил его UID. Проверьте Черновики по Message-ID "
+            + str(msg["Message-ID"])
+        )
     return {
         "from": str(msg["From"]),
         "to": [a.addr_spec for a in msg["To"].addresses] if msg["To"] else [],
@@ -135,13 +161,7 @@ def draft(client, account, letter, *, original=None):
     }
 
 
-def submit(account, request, fingerprint, msg):
-    """Reserve before SMTP DATA. An ambiguous delivery may never be retried automatically."""
-    digest = hashlib.sha256(fingerprint).hexdigest()
-    request = str(request)
-    message_id = str(msg.get("Message-ID") or make_msgid())
-    if not msg.get("Message-ID"):
-        msg["Message-ID"] = message_id
+def envelope(account, msg):
     recipients = [
         addr.addr_spec
         for key in ("To", "Cc", "Bcc")
@@ -170,6 +190,20 @@ def submit(account, request, fingerprint, msg):
     recipients = list(dict.fromkeys(address(r) for r in recipients))
     if len(msg.as_bytes()) > 25 * 1024 * 1024:
         raise Problem("Исходящее письмо превышает 25 МиБ.")
+    return recipients
+
+
+def submit(account, request, fingerprint, msg):
+    """Reserve before SMTP DATA. An ambiguous delivery may never be retried automatically."""
+    return submit_digest(account, request, hashlib.sha256(fingerprint).hexdigest(), msg)
+
+
+def submit_digest(account, request, digest, msg):
+    request = str(request)
+    message_id = str(msg.get("Message-ID") or make_msgid())
+    if not msg.get("Message-ID"):
+        msg["Message-ID"] = message_id
+    recipients = envelope(account, msg)
 
     def existing(db):
         row = db.execute(
