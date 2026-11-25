@@ -75,6 +75,17 @@ def database():
                 email TEXT REFERENCES accounts(email) ON DELETE CASCADE, folder TEXT,
                 validity INTEGER, uid INTEGER, hashes TEXT NOT NULL,
                 PRIMARY KEY(email,folder,validity,uid));
+            CREATE TABLE IF NOT EXISTS mailbox_names(
+                email TEXT PRIMARY KEY REFERENCES accounts(email) ON DELETE CASCADE, name TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS folder_rules(
+                email TEXT REFERENCES accounts(email) ON DELETE CASCADE, folder TEXT, delimiter TEXT,
+                mode TEXT NOT NULL, PRIMARY KEY(email,folder));
+            CREATE TABLE IF NOT EXISTS feed_inventory(
+                email TEXT REFERENCES accounts(email) ON DELETE CASCADE, name TEXT, folder TEXT,
+                from_start INTEGER NOT NULL, PRIMARY KEY(email,name,folder));
+            CREATE TABLE IF NOT EXISTS routed_messages(
+                email TEXT REFERENCES accounts(email) ON DELETE CASCADE, digest TEXT, origin TEXT NOT NULL,
+                PRIMARY KEY(email,digest));
         """)
         with db:
             yield db
@@ -85,8 +96,10 @@ def database():
 def profiles():
     with database() as db:
         return [
-            dict(r)
-            for r in db.execute("SELECT email,mode FROM accounts ORDER BY email")
+            {k: v for k, v in dict(r).items() if v is not None}
+            for r in db.execute(
+                "SELECT a.email,a.mode,n.name FROM accounts a LEFT JOIN mailbox_names n ON a.email=n.email ORDER BY a.email"
+            )
         ]
 
 

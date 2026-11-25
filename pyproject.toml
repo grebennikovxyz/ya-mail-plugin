@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "grebennikov-ya-mail"
-version = "0.2.0"
+version = "0.3.0"
 description = "Ya-Ma — почтовый плагин для локальных агентов и расписаний Codex"
 requires-python = ">=3.13"
 readme = "README.md"

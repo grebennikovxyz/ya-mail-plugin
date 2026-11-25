@@ -14,6 +14,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 
 from .accounts import DATA, SERVICE, Problem, vault
+from .folders import native_guard
 
 URL = "https://mcp.360.yandex.net/v1/mail/mcp"
 AUTHORIZE = "https://oauth.yandex.ru/authorize?client_id=355734217047470d8064b5dbbf579fee&response_type=token"
@@ -138,6 +139,10 @@ async def list_tools():
     data = record()
     if not data:
         return []
+    try:
+        native_guard()
+    except Problem:
+        return []
     mode, token = data
     try:
         tools = await discover(token, mode)
@@ -156,6 +161,7 @@ async def call_tool(name, arguments):
     data = record()
     if not data or not allowed(name, data[0]):
         raise Problem("Эта операция не разрешена для подключения Яндекс 360.")
+    native_guard()
     try:
         async with remote(data[1]) as session:
             return await session.call_tool(name, arguments)

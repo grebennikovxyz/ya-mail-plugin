@@ -113,6 +113,15 @@ def test_quote_routing_preview_retry_and_deadline(quote, disk, env):
         and "attendees" not in request["event"]
     )
     assert all(f["url"] in request["event"]["description"] for f in again["files"])
+    env[1].data["Projects"] = {17: env[1].data["INBOX"].pop(1)}
+    moved = ref.model_copy(update={"folder": "Projects", "uid": 17})
+    args = (moved, *args[1:])
+    after_move = server.route_attachments(*args, preview=False, deadline=deadline)
+    assert after_move["calendar_request"] == request
+    assert [f["status"] for f in after_move["files"]] == [
+        "already_saved",
+        "already_saved",
+    ]
     files[saved["files"][0]["path"]] = b"different"
     with pytest.raises(accounts.Problem, match="отличается"):
         server.route_attachments(*args, preview=False)

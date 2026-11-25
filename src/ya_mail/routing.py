@@ -13,7 +13,7 @@ from ydisk_plugin import account as disk_account
 from ydisk_plugin.disk import Disk, disk_url, path_of
 
 from . import mail
-from .accounts import Problem
+from .accounts import Problem, database
 from .mail import Short
 
 
@@ -115,7 +115,7 @@ def store_files(owner_uid, folder, plans):
         ) from None
 
 
-def route(msg, ref, owner_uid, folder, phrases, preview, deadline):
+def route(msg, ref, owner_uid, folder, phrases, preview, deadline, digest):
     if not folder.startswith(("/", "disk:/")):
         raise Problem("Укажите полный путь к папке на Диске.")
     folder = path_of(folder)
@@ -128,7 +128,20 @@ def route(msg, ref, owner_uid, folder, phrases, preview, deadline):
     }
     if not matched:
         return result
-    source = uuid5(NAMESPACE_URL, "ya-ma:" + ref.model_dump_json())
+    # Reuse the original reference after a server-side move. Include the account
+    # in the key so independent deliveries to two mailboxes stay independent.
+    with database() as db:
+        if not preview:
+            db.execute(
+                "INSERT OR IGNORE INTO routed_messages VALUES(?,?,?)",
+                (ref.account, digest, ref.model_dump_json()),
+            )
+        stored = db.execute(
+            "SELECT origin FROM routed_messages WHERE email=? AND digest=?",
+            (ref.account, digest),
+        ).fetchone()
+    origin = mail.Ref.model_validate_json(stored[0]) if stored else ref
+    source = uuid5(NAMESPACE_URL, "ya-ma:" + origin.model_dump_json())
     plans = []
     for number, part in enumerate(mail.parts(msg), 1):
         filename = f"{source.hex}-{number}-{attachment_name(part)}"
@@ -159,7 +172,7 @@ def route(msg, ref, owner_uid, folder, phrases, preview, deadline):
                 "start": deadline.start,
                 "end": deadline.end,
                 "description": "\n".join(
-                    [f"{ref.account} · {ref.folder} · UID {ref.uid}", *links]
+                    [f"{origin.account} · {origin.folder} · UID {origin.uid}", *links]
                 )[:60000],
             },
         }

@@ -28,7 +28,8 @@ def test_search_ids_and_transitive_threads_without_search_header(env):
         )
 
     root = insert("INBOX", "root")
-    insert("Archive", "reply", "root")
+    box.data["Projects"] = {}
+    insert("Projects", "reply", "root")
     insert("INBOX", "follow-up", "reply")
     insert("INBOX", "unrelated-root")
     duplicate = insert("INBOX", "root")
@@ -144,13 +145,14 @@ def test_filters_and_stable_pages(env):
 def test_read_search_all_attachment_and_stale_uid(env):
     a, b = env
     b.add()
-    b.add("Archive")
+    b.data["Projects"] = {}
+    b.add("Projects")
     first = server.search_messages(a.email, mail.Filter(), limit=1)
     ref = mail.Ref(**first["messages"][0]["ref"])
     page = server.search_messages(
         a.email, mail.Filter(), limit=1, before=mail.Ref(**first["next_before"])
     )
-    assert page["messages"][0]["ref"]["folder"] == "Archive"
+    assert page["messages"][0]["ref"]["folder"] == "Projects"
     message = server.read_message(ref, count=3)
     assert message["body"] == "Зак" and message["next_offset"] == 3
     assert message["attachments"][0]["name"] == "Счёт.pdf"

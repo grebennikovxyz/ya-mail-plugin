@@ -127,6 +127,10 @@ def test_manifest_stdio_handshake(server_name, tmp_path):
                 "send_draft",
                 "poll_new",
                 "route_attachments",
+                "prepare_reply",
+                "mailbox_overview",
+                "poll_mailboxes",
+                "set_folder_rule",
                 "acknowledge_batch",
             } <= by_name.keys()
             assert by_name["read_message"].annotations.readOnlyHint

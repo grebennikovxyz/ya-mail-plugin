@@ -46,9 +46,12 @@ def main():
             print(json.dumps(profiles(), ensure_ascii=False, indent=2))
         elif args.action == "check":
             from .accounts import current
+            from .folders import allow
             from .transport import mailbox
 
-            with mailbox(current(args.account)) as client:
+            account = current(args.account)
+            with mailbox(account) as client:
+                allow(account.email, "INBOX", client)
                 folders = client.list_folders()
                 client.select_folder("INBOX", readonly=True)
                 matches = client.search(["UNDELETED", "UNSEEN"])

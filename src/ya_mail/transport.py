@@ -63,7 +63,7 @@ def connect(email, password, mode):
         raise Problem("Скопируйте пароль приложения типа «Почта» из Яндекс ID.")
     account = Account(email, mode, password)
     with mailbox(account) as client:
-        client.select_folder("INBOX", readonly=True)
+        client.list_folders()
     if mode == "send":
         with outgoing(account):
             pass

@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "yandex-mail",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Неофициальный плагин для Яндекс Почты с локальным мастером подключения, IMAP/SMTP и поддержкой Яндекс 360.",
   "author": {
     "name": "Антон Гребенников"
@@ -20,7 +20,7 @@
         "category": "Productivity",
         "brandColor": "#53364F",
         "defaultPrompt": [
-          "Покажи непрочитанные письма за сегодня",
+          "Покажи непрочитанные письма по моим ящикам",
           "Найди переписку с поставщиком и подготовь ответ"
         ]
       }

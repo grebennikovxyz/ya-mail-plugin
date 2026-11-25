@@ -28,6 +28,10 @@ async def verify(folder):
             names = {tool.name for tool in (await session.list_tools()).tools}
             assert {
                 "poll_new",
+                "prepare_reply",
+                "mailbox_overview",
+                "poll_mailboxes",
+                "set_folder_rule",
                 "route_attachments",
                 "read_message",
                 "modify_messages",

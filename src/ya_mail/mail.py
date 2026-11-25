@@ -10,6 +10,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field
 
 from .accounts import Problem, database
+from . import folders as folder_policy
 
 Short = Annotated[
     str, Field(min_length=1, max_length=512, pattern=r"^[^\x00-\x1f\x7f]+$")
@@ -116,6 +117,7 @@ def flags_view(flags):
 def checked_folder(client, ref, account, write=False):
     if ref.account != account.email:
         raise Problem("Идентификатор письма относится к другому ящику.")
+    folder_policy.allow(account.email, ref.folder, client)
     info = client.select_folder(ref.folder, readonly=not write)
     if info[b"UIDVALIDITY"] != ref.validity:
         raise Problem(
@@ -210,6 +212,7 @@ def thread_refs(client, account, folders, roots):
     budget = 2 * THREAD_BATCH
     complete = True
     for folder in folders:
+        folder_policy.allow(account.email, folder, client)
         validity = client.select_folder(folder, readonly=True)[b"UIDVALIDITY"]
         uids = sorted(client.search(["UNDELETED"]), reverse=True)
         cached, indexed, remaining = indexed_headers(
@@ -281,6 +284,7 @@ def summaries(client, account, folder, validity, uids):
 
 
 def search_folder(client, account, folder, filters, limit, before_ref=None):
+    folder_policy.allow(account.email, folder, client)
     info = client.select_folder(folder, readonly=True)
     validity = info[b"UIDVALIDITY"]
     extra = []
@@ -310,7 +314,7 @@ def search_folder(client, account, folder, filters, limit, before_ref=None):
     }
 
 
-def raw_message(client, ref, account):
+def raw_bytes(client, ref, account):
     checked_folder(client, ref, account)
     sizes = client.fetch([ref.uid], ["RFC822.SIZE"])
     size = sizes.get(ref.uid, {}).get(b"RFC822.SIZE")
@@ -324,7 +328,19 @@ def raw_message(client, ref, account):
     raw = rows.get(ref.uid, {}).get(b"BODY[]")
     if raw is None:
         raise Problem("Письмо перемещено или удалено. Повторите поиск.")
-    return PARSER.parsebytes(raw)
+    return raw
+
+
+def raw_message(client, ref, account):
+    return PARSER.parsebytes(raw_bytes(client, ref, account))
+
+
+def reply_source(client, ref, account):
+    checked_folder(client, ref, account)
+    row = client.fetch([ref.uid], [HEADER_PEEK]).get(ref.uid)
+    if row is None:
+        raise Problem("Письмо перемещено. Повторите поиск.")
+    return fetched_headers(row)
 
 
 def parts(msg):

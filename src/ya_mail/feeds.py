@@ -1,10 +1,12 @@
 import secrets
 
 from .accounts import Problem, database
+from .folders import allow
 from .mail import summaries
 
 
 def poll(client, account, folder, name, limit, include_existing):
+    allow(account.email, folder, client)
     info = client.select_folder(folder, readonly=True)
     validity, ceiling = info[b"UIDVALIDITY"], info[b"UIDNEXT"] - 1
     key = (account.email, folder, name)
@@ -54,6 +56,7 @@ def poll(client, account, folder, name, limit, include_existing):
 
 
 def acknowledge(account, folder, name, receipt):
+    allow(account.email, folder)
     with database() as db:
         changed = db.execute(
             """UPDATE feeds SET position=batch_end,batch_end=NULL,receipt=NULL
@@ -61,3 +64,25 @@ def acknowledge(account, folder, name, receipt):
             (account.email, folder, name, receipt),
         ).rowcount
     return {"advanced": bool(changed)}
+
+
+def inventory(account, name, items):
+    """An already-running task must also see the first arrival in a newly created folder."""
+    with database() as db:
+        db.execute("BEGIN IMMEDIATE")
+        previous = dict(
+            db.execute(
+                "SELECT folder,from_start FROM feed_inventory WHERE email=? AND name=?",
+                (account.email, name),
+            )
+        )
+        fresh = {
+            i["folder"]: bool(previous)
+            for i in items
+            if not i.get("missing") and i["folder"] not in previous
+        }
+        db.executemany(
+            "INSERT INTO feed_inventory VALUES(?,?,?,?)",
+            [(account.email, name, folder, start) for folder, start in fresh.items()],
+        )
+    return previous | fresh
