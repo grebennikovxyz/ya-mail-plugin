@@ -4,31 +4,50 @@ import json
 import re
 import time
 from collections import defaultdict
+from email.utils import getaddresses
 
-from pydantic import BaseModel, Field
+from mcp.shared.exceptions import McpError
+from pydantic import BaseModel, Field, ValidationError
 
 from . import folders, mail
-from .accounts import Problem, current, database
+from .accounts import Problem, current, database, profiles
 from .transport import mailbox
 
 
 class ConfirmTrash(BaseModel):
-    move_listed_messages_to_trash: bool = Field(
-        title="Переместить только перечисленные письма"
+    confirmation: str = Field(
+        title="Введите фразу под списком писем", min_length=1, max_length=80
     )
 
 
-def printable(value):
+def printable(value, limit=None):
     # Render a single line per message, including attacker-controlled headers, as quoted data.
-    import unicodedata
+    text = "".join(c if c.isprintable() else " " for c in str(value))
+    if limit and len(text) > limit:
+        text = text[: limit - 1] + "…"
+    return json.dumps(text, ensure_ascii=False).replace("`", r"\u0060")
 
-    return json.dumps(
-        "".join(
-            c if not unicodedata.category(c).startswith("C") else " "
-            for c in str(value)
-        ),
-        ensure_ascii=False,
-    )
+
+def needs_digest(client, dest, role):
+    cleanup_flags = {r"\trash", r"\junk", r"\spam", r"\drafts"}
+    target = dest.casefold()
+    if (
+        role in {"trash", "spam", "drafts"}
+        or folders.SYSTEM_ROOTS.get(target) in cleanup_flags
+    ):
+        return True
+    listed = list(client.list_folders())
+    if client.has_capability("XLIST"):
+        listed.extend(client.xlist_folders())
+    trash = set()
+    for flags, _, name in listed:
+        roles = {flag.decode().lower() for flag in flags}
+        if name.casefold() == target and roles & cleanup_flags:
+            return True
+        if r"\trash" in roles:
+            trash.add(name)
+    # When Trash is ambiguous, a named destination could be destructive.
+    return len(trash) != 1
 
 
 def inspect(client, acc, groups, folder, role):
@@ -41,15 +60,11 @@ def inspect(client, acc, groups, folder, role):
         rows = mail.summaries(client, acc, refs[0].folder, refs[0].validity, uids)
         if len(rows) != len(uids):
             raise Problem("Выборка изменилась. Повторите поиск перед перемещением.")
-        result.extend((r["ref"], r["From"], r["Date"], r["Subject"]) for r in rows)
-    trash = folders.verified_role(client, "trash")
-    spam = folders.verified_role(client, "spam")
-    sensitive = (
-        role in {"trash", "spam"}
-        or not trash
-        or dest.casefold() in {trash.casefold(), (spam or "").casefold()}
-    )
-    return dest, result, sensitive
+        result.extend(
+            (r["ref"], r["From"], r["To"], r["Cc"], r["Date"], r["Subject"])
+            for r in rows
+        )
+    return dest, result, needs_digest(client, dest, role)
 
 
 def move_uids(client, uids, dest):
@@ -95,18 +110,55 @@ def record_move(email, dest, count, reply):
 
 
 async def confirm_snapshot(ctx, email, dest, snapshot):
+    with database() as db:
+        number = db.execute(
+            """INSERT INTO removal_counter VALUES(1,1)
+               ON CONFLICT(id) DO UPDATE SET number=number+1 RETURNING number"""
+        ).fetchone()[0]
+    digest_id = f"R-{number:02d}"
+    phrase = f"Удалить по дайджесту {digest_id}"
+    own = {item["email"].casefold() for item in profiles()} | {email.casefold()}
     lines = [
-        f"Переместить перечисленные письма? Ящик {email}. Папка назначения {printable(dest)}."
+        f"Дайджест {digest_id}. Писем к перемещению: {len(snapshot)}.",
+        "```",
+        f"Ящик {printable(email)} → папка {printable(dest)}",
+        "Папка · UID · Корреспондент · Дата · Тема",
     ]
-    for ref, sender, date, subject in snapshot:
+    for ref, sender, to, cc, date, subject in snapshot:
+        peer = next(
+            (
+                f"{name[:80]} <{addr}>" if name else addr
+                for field in (sender, to, cc)
+                for name, addr in getaddresses([field])
+                if addr and addr.casefold() not in own
+            ),
+            "Внешний корреспондент не указан",
+        )
         lines.append(
             " · ".join(
-                map(printable, (ref["folder"], ref["uid"], sender, date, subject))
+                (
+                    printable(ref["folder"]),
+                    str(ref["uid"]),
+                    printable(peer),
+                    printable(date, 80),
+                    printable(subject, 200),
+                )
             )
         )
-    response = await ctx.elicit("\n".join(lines), ConfirmTrash)
-    if response.action != "accept" or not response.data.move_listed_messages_to_trash:
-        raise Problem("Письма сохранены.")
+    lines.extend(
+        ["```", "Для подтверждения введите в поле формы точную фразу:", phrase]
+    )
+    try:
+        response = await ctx.elicit("\n".join(lines), ConfirmTrash)
+    except (McpError, ValidationError) as exc:
+        raise Problem(
+            "Письма сохранены. Требуется ответ владельца в текстовой форме MCP."
+        ) from exc
+    if response.action != "accept" or response.data.confirmation != phrase:
+        raise Problem(
+            "Письма сохранены. Подтверждение для этого дайджеста не получено."
+        )
+    return digest_id
 
 
 async def move(refs, folder, role, ctx, connect):
@@ -120,10 +172,11 @@ async def move(refs, folder, role, ctx, connect):
         groups[r.folder, r.validity].append(r)
     with connect(acc) as client:
         dest, snapshot, sensitive = inspect(client, acc, groups, folder, role)
-        needs_consent = len(snapshot) > 1 and sensitive
-    if needs_consent:
-        await confirm_snapshot(ctx, acc.email, dest, snapshot)
-    with connect(current(acc.email, "organize")) as client:
+    digest_id = (
+        await confirm_snapshot(ctx, acc.email, dest, snapshot) if sensitive else None
+    )
+    acc = current(acc.email, "organize")
+    with connect(acc) as client:
         if inspect(client, acc, groups, folder, role) != (dest, snapshot, sensitive):
             raise Problem("Выборка изменилась. Повторите поиск.")
         moved = []
@@ -133,10 +186,14 @@ async def move(refs, folder, role, ctx, connect):
             if set(client.get_flags(uids)) != set(uids):
                 raise Problem("Выборка изменилась. Проверьте папки перед повтором.")
             if dest != subset[0].folder:
+                folders.allow(acc.email, dest, client)
                 reply = move_uids(client, uids, dest)
                 record_move(acc.email, dest, len(uids), reply)
             moved.extend(r.model_dump() for r in subset)
-    return {"destination": dest, "uids": [r["uid"] for r in moved], "messages": moved}
+    result = {"destination": dest, "uids": [r["uid"] for r in moved], "messages": moved}
+    if digest_id:
+        result["digest_id"] = digest_id
+    return result
 
 
 def cleanup(acc, role, days, connect=mailbox):

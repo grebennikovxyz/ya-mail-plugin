@@ -33,8 +33,11 @@ def roles(box):
     box.uid_expunge = expunge
 
 
-@pytest.mark.parametrize("action", ["decline", "arrival", "uidvalidity"])
-def test_bulk_trash_button_snapshot(env, action):
+@pytest.mark.parametrize(
+    "action",
+    ["decline", "cancel", "wrong", "empty", "checkbox", "arrival", "uidvalidity"],
+)
+def test_bulk_trash_digest_snapshot(env, action):
     acc, box = env
     roles(box)
     refs = [
@@ -47,15 +50,30 @@ def test_bulk_trash_button_snapshot(env, action):
     async def answer(_, params):
         assert all(
             s in params.message
-            for s in ["Счёт 1", "Счёт 2", "INBOX", "Trash", acc.email]
+            for s in [
+                "Счёт 1",
+                "Счёт 2",
+                "INBOX",
+                "Trash",
+                acc.email,
+                "user@example.org",
+            ]
+        )
+        phrase = params.message.splitlines()[-1]
+        assert phrase == "Удалить по дайджесту R-01"
+        field = params.requestedSchema["properties"]["confirmation"]
+        assert (
+            field["type"] == "string" and "default" not in field and "enum" not in field
         )
         box.add(subject="Позже")
         if action == "uidvalidity":
             box.validity += 1
-        return types.ElicitResult(
-            action="decline" if action == "decline" else "accept",
-            content={"move_listed_messages_to_trash": True},
-        )
+        if action in {"decline", "cancel"}:
+            return types.ElicitResult(action=action)
+        content = {"confirmation": {"wrong": "да", "empty": ""}.get(action, phrase)}
+        if action == "checkbox":
+            content = {"move_listed_messages_to_trash": True}
+        return types.ElicitResult(action="accept", content=content)
 
     async def check():
         async with create_connected_server_and_client_session(
@@ -65,11 +83,81 @@ def test_bulk_trash_button_snapshot(env, action):
                 "move_messages", {"refs": refs, "folder": "Trash"}
             )
             assert result.isError == (action != "arrival")
+            if not result.isError:
+                assert json.loads(result.content[0].text)["digest_id"] == "R-01"
 
     asyncio.run(check())
     assert set(box.data["INBOX"]) == ({3} if action == "arrival" else {1, 2, 3})
     for name in ["mail.move_messages", "mail_delete_message"]:
         assert not native.allowed(name, "organize")
+
+
+@pytest.mark.parametrize(
+    "destination", [{"role": "trash"}, {"folder": "Bulk"}, {"folder": "Drafts"}]
+)
+def test_single_message_rejects_another_digest(env, destination):
+    acc, box = env
+    roles(box)
+    ref = message(box, acc, "INBOX", "peer@example.org", 5, incoming=True)
+    old_phrase = []
+
+    async def answer(_, params):
+        assert "Иван <peer@example.org>" in params.message
+        phrase = params.message.splitlines()[-1]
+        if not old_phrase:
+            old_phrase.append(phrase)
+            return types.ElicitResult(action="cancel")
+        assert phrase == "Удалить по дайджесту R-02" and phrase != old_phrase[0]
+        return types.ElicitResult(
+            action="accept", content={"confirmation": old_phrase[0]}
+        )
+
+    async def run():
+        async with create_connected_server_and_client_session(
+            server.mcp, elicitation_callback=answer
+        ) as client:
+            for _ in range(2):
+                result = await client.call_tool(
+                    "move_messages", {"refs": [ref.model_dump()], **destination}
+                )
+                assert result.isError
+
+    asyncio.run(run())
+    assert old_phrase == ["Удалить по дайджесту R-01"]
+    assert set(box.data["INBOX"]) == {ref.uid}
+
+
+def test_no_form_no_trash_and_no_confirmation_argument(env):
+    acc, box = env
+    roles(box)
+    uid = box.add()
+    refs = [
+        mail.Ref(
+            account=acc.email, folder="INBOX", validity=box.validity, uid=uid
+        ).model_dump()
+    ]
+
+    async def run():
+        async with create_connected_server_and_client_session(server.mcp) as client:
+            tool = next(
+                t
+                for t in (await client.list_tools()).tools
+                if t.name == "move_messages"
+            )
+            assert "confirmation" not in tool.inputSchema["properties"]
+            result = await client.call_tool(
+                "move_messages", {"refs": refs, "role": "trash"}
+            )
+            assert result.isError
+
+    asyncio.run(run())
+    assert set(box.data["INBOX"]) == {uid}
+
+
+def test_digest_header_stays_on_one_data_line():
+    field = removal.printable("Запрос\u2028Ещё строка\r\n\u202e```" + "X" * 300, 200)
+    assert len(field.splitlines()) == 1 and "`" not in field and "\u202e" not in field
+    assert json.loads(field).endswith("…")
 
 
 def test_cleanup_requires_actual_role_age_and_precise_expunge(env, monkeypatch):

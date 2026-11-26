@@ -7,7 +7,7 @@ from email import policy
 from email.message import EmailMessage
 
 import pytest
-from conftest import Box
+from conftest import Box, accept_digest
 
 from ya_mail import lazy_codex as codex
 from ya_mail import lazy_mail as lm
@@ -140,10 +140,14 @@ def test_personal_invoice_advert_and_digest(inbox):
     assert classified == ["<INBOX-2@fixture.org>"]
     assert box.moves == [("INBOX", 3, lm.REVIEW)]
     assert worker.digest(acc.email, r["run"])["counts"]["awaiting_trash"] == 1
-    from conftest import consent
+    from types import SimpleNamespace
 
     assert (
-        asyncio.run(worker.confirm_trash(acc.email, r["run"], 25, consent()))["moved"]
+        asyncio.run(
+            worker.confirm_trash(
+                acc.email, r["run"], 25, SimpleNamespace(elicit=accept_digest)
+            )
+        )["moved"]
         == 1
     )
     assert set(box.moves) == {("INBOX", 2, "Trash"), ("INBOX", 3, lm.REVIEW)}
@@ -404,9 +408,7 @@ def test_approval_rechecks_star_and_binds_page_after_click(inbox):
         )
         box.flags[1] = {rb"\Flagged"}
         box.message(3)
-        return SimpleNamespace(
-            action="accept", data=schema(move_listed_messages_to_trash=True)
-        )
+        return await accept_digest(prompt, schema)
 
     async def decline(prompt, schema):
         return SimpleNamespace(action="decline", data=None)
@@ -420,6 +422,7 @@ def test_approval_rechecks_star_and_binds_page_after_click(inbox):
         worker.confirm_trash(acc.email, run, 100, SimpleNamespace(elicit=click))
     )
     assert result["moved"] == 1 and box.moves == [("INBOX", 2, "Trash")]
+    assert result["digest_id"] == "R-02"
     assert (
         asyncio.run(
             worker.confirm_trash(acc.email, run, 100, SimpleNamespace(elicit=click))

@@ -548,6 +548,8 @@ async def confirm_trash(account, run_id, limit, ctx):
                     (
                         ref.model_dump(),
                         str(entry[2].get("From", "")),
+                        str(entry[2].get("To", "")),
+                        str(entry[2].get("Cc", "")),
                         entry[1][b"INTERNALDATE"].isoformat(),
                         str(entry[2].get("Subject", "")),
                     )
@@ -565,7 +567,7 @@ async def confirm_trash(account, run_id, limit, ctx):
                         )
         if not snapshot:
             return {"run": run_id, "moved": 0}
-    await removal.confirm_snapshot(ctx, acc.email, dest, snapshot)
+    digest_id = await removal.confirm_snapshot(ctx, acc.email, dest, snapshot)
     moved = 0
     with lazy_store.policy_lock():
         if lazy_store.policies().get(acc.email) != rules:
@@ -598,4 +600,4 @@ async def confirm_trash(account, run_id, limit, ctx):
                     ).fetchone()[0]
                     == "trash"
                 )
-    return {"run": run_id, "moved": moved}
+    return {"run": run_id, "moved": moved, "digest_id": digest_id}

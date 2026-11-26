@@ -21,12 +21,16 @@ def local_database(tmp_path, monkeypatch):
 
 
 def consent():
-    data = SimpleNamespace(
-        send_to_these_addresses=True, move_listed_messages_to_trash=True
-    )
+    data = SimpleNamespace(send_to_these_addresses=True)
     return SimpleNamespace(
         elicit=AsyncMock(return_value=SimpleNamespace(action="accept", data=data))
     )
+
+
+async def accept_digest(prompt, schema):
+    phrase = prompt.splitlines()[-1]
+    assert phrase.startswith("Удалить по дайджесту R-")
+    return SimpleNamespace(action="accept", data=schema(confirmation=phrase))
 
 
 def send_now(coroutine):
