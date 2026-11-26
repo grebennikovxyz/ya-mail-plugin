@@ -2,26 +2,63 @@
 
 <img src="plugins/yandex-mail/assets/ya-ma.png" alt="Конверт Ya-Ma с карточкой .msg" width="144">
 
-Неофициальный плагин для личной почты и доменных ящиков Яндекс 360. Агент может разобрать переписку, найти вложение, поставить метки, подготовить ответ или проверить новые письма по расписанию. У каждого подключённого ящика свой режим доступа. Потребуются Git, [uv](https://docs.astral.sh/uv/getting-started/installation/) и клиент с поддержкой локального MCP.
+Неофициальный плагин для личной Яндекс Почты и доменных ящиков Яндекс 360. Агент может разобрать переписку, найти вложение, поставить метки, подготовить ответ или проверить новые письма по расписанию. У каждого подключённого ящика свой режим доступа.
 
-## Установка
+## Установка из репозитория GitHub
 
-Выполните в терминале пользователя, под которым работает Codex.
+Ya-Ma устанавливается из публичного репозитория в Codex, Claude Code и OpenClaw. Сначала подключите почту на компьютере, где будет работать агент. Затем выполните команды для своего клиента. [Репозиторий Ya-Ma](https://github.com/grebennikovxyz/ya-mail-plugin)
+
+### 1. Установите команду ya-mail и подключите ящик
+
+Потребуются Git и uv. Выполните команды под пользователем, от которого запускается клиент. Для OpenClaw это пользователь на хосте Gateway. [Установка uv](https://docs.astral.sh/uv/getting-started/installation/)
 
 ```sh
 uv tool install --python 3.13 git+https://github.com/grebennikovxyz/ya-mail-plugin.git@main
 uv tool update-shell
 ```
 
-Откройте новый терминал и выполните команды установки каталога и плагина.
+Откройте новый терминал и запустите мастер. Он подскажет, где создать пароль приложения в Яндекс ID, и предложит выбрать права для этого ящика.
 
 ```sh
-codex plugin marketplace add https://github.com/grebennikovxyz/ya-mail-plugin.git --ref main
-codex plugin add yandex-mail@grebennikov-mail
 ya-mail connect
+ya-mail status
 ```
 
-В клиенте с ручной настройкой MCP выберите транспорт **stdio**, команду `ya-mail` и аргумент `serve`. В клиенте с импортом ZIP можно импортировать архив плагина после установки команды `ya-mail`. Начните новый чат и попросите «Покажи подключённые ящики».
+### 2. Добавьте Ya-Ma в свой клиент
+
+**Codex** использует каталог `grebennikov-mail`.
+
+```sh
+codex plugin marketplace add grebennikovxyz/ya-mail-plugin --ref main
+codex plugin add yandex-mail@grebennikov-mail
+codex plugin list --marketplace grebennikov-mail
+```
+
+**Claude Code** использует каталог `grebennikov-ya-mail`.
+
+```sh
+claude plugin marketplace add grebennikovxyz/ya-mail-plugin
+claude plugin install yandex-mail@grebennikov-ya-mail
+claude plugin list
+```
+
+**OpenClaw** читает каталог Claude из того же репозитория. Первая команда показывает карточку Ya-Ma. При установке `--force` подтверждает выбор источника GitHub и позволяет заменить существующую копию, а `--accept-capabilities` разрешает заявленные возможности MCP.
+
+```sh
+openclaw plugins marketplace list grebennikovxyz/ya-mail-plugin
+openclaw plugins install yandex-mail --marketplace grebennikovxyz/ya-mail-plugin --force --accept-capabilities
+openclaw plugins inspect yandex-mail
+```
+
+В выводе `inspect` проверьте `Status: enabled` и серверы `yandex-mail` и `yandex-mail-360`. При сообщении `Saved for the next Gateway start` плагин загрузится при следующем запуске Gateway.
+
+Откройте новый локальный чат и попросите «Покажи подключённые ящики». В ответе должны быть адрес из мастера и выбранный режим доступа.
+
+### Другие способы установки
+
+**OpenClaw из релиза GitHub.** На хосте Gateway установите команду `ya-mail` из первого шага. Скачайте архив с окончанием `-clawhub.tgz` и передайте его путь команде `openclaw plugins install` с флагами `--force --accept-capabilities`. [Архивы последнего релиза](https://github.com/grebennikovxyz/ya-mail-plugin/releases/latest)
+
+В клиенте с ручной настройкой MCP выберите транспорт **stdio**, команду `ya-mail` и аргумент `serve`. В клиенте с импортом ZIP можно импортировать архив плагина после установки команды `ya-mail`.
 
 Для Windows x64 доступна автономная сборка. Скачайте архив с окончанием `-windows-x64.zip`, распакуйте и запустите `connect.cmd`. В архив входят Python и библиотеки. Импортируйте ZIP в поддерживающий это клиент. Для ручного добавления MCP укажите полный путь к `runtime/python.exe` из распакованного архива и аргументы `-I -B -m ya_mail.cli serve`. Для официального сервера используйте `connect-360.cmd` и последний аргумент `serve-360`. [Сборки для скачивания](https://github.com/grebennikovxyz/ya-mail-plugin/releases)
 
@@ -70,11 +107,10 @@ ya-mail lazy disable --account user@example.org
 
 Ручной запуск через MCP использует sampling клиента при наличии поддержки либо локальный Codex CLI. Классификатор получает отобранный текст рассылки. По окончании доступен постраничный дайджест с причинами решений.
 
-## Телефон, Claude Code, OpenClaw и n8n
+## Подключение с телефона, OpenClaw и n8n
 
 - **Телефон.** `ya-mail connect --web` откроет мастер на хосте по адресу `http://127.0.0.1:8776`. Для подключения с телефона пробросьте этот порт своим SSH-клиентом на loopback телефона. Откройте страницу и введите код из терминала. Мастер ведёт в настройки IMAP и Яндекс ID. Для работы с почтой с телефона используйте чат личного OpenClaw или совместимый MCP-клиент.
-- **Claude Code.** После установки команды ya-mail добавьте каталог командой `claude plugin marketplace add grebennikovxyz/ya-mail-plugin`, затем выполните `claude plugin install yandex-mail@grebennikov-ya-mail`. Для локальной версии каталога можно указать путь к репозиторию. Проверьте список в `/mcp`.
-- **OpenClaw.** Установите CLI ya-mail на хосте личного Gateway и выполните `openclaw plugins install yandex-mail --marketplace grebennikovxyz/ya-mail-plugin`. Каталог можно посмотреть командой `openclaw plugins marketplace list grebennikovxyz/ya-mail-plugin`. Для установки из архива скачайте файл с окончанием `-clawhub.tgz` из релиза и передайте его путь в `openclaw plugins install`. Если MCP уже подключён, отдельный навык после публикации в ClawHub устанавливается командой `clawhub install @ВЛАДЕЛЕЦ/ya-ma` с именем издателя из карточки. Навык использует инструменты подключённой почты. При ручной регистрации MCP используйте `openclaw mcp add yandex-mail --command ya-mail --arg serve`. Для работающего Gateway добавьте `--no-probe` и проверьте список ящиков в новой сессии.
+- **OpenClaw с ручной настройкой MCP.** На хосте Gateway выполните `openclaw mcp add yandex-mail --command ya-mail --arg serve`. Для работающего Gateway добавьте `--no-probe` и проверьте список ящиков в новой сессии.
 - **Личный HTTPS MCP и n8n.** Задайте в окружении службы секрет `YA_MAIL_MCP_TOKEN` из 43–256 случайных символов base64url. Запустите `ya-mail serve-http --public-origin https://mail-agent.example.org`. Направьте этот HTTPS-хост своим обратным прокси на `127.0.0.1:8775`, сохранив внешний Host. Укажите в credential ноды URL `https://mail-agent.example.org/mcp` и Bearer-ключ. Держатель ключа получает права подключённых ящиков. Интерактивное подтверждение отправки на новый адрес или переноса списка в Корзину проходит в клиенте с формами MCP. [Нода и пример расписания](n8n/README.md)
 
 Поиск поддерживает адреса Cc/Bcc, ограничения по размеру и наличие вложения. Для поиска вложений используется BODYSTRUCTURE. Если IMAP-сервер не принимает произвольную метку, Ya-Ma сохраняет её в локальной базе и включает в поиск. Команда «Измени черновик» возвращает ссылку на новую версию. Для письма в очереди действует обычная правка с остановкой отправки.
