@@ -9,10 +9,12 @@ import tempfile
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from marketplaces import sync
+
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "plugins" / "yandex-mail"
 DIST = ROOT / "dist"
-VERSION = json.loads((PLUGIN / "plugin.json").read_bytes())["version"]
+VERSION = sync(ROOT)
 FILES = [
     "plugin.json",
     ".codex-plugin/plugin.json",

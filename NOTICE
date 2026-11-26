@@ -10,3 +10,7 @@ Yandex Mail terms: https://yandex.ru/legal/mail_termsofuse/ru/
 Backlog triage and client adapters were adapted from Ma-Ru 0.3.0.
 Copyright 2026 Антон Геннадьевич Гребенников, Apache License 2.0.
 https://github.com/grebennikovxyz/ma-ru-plugin
+
+The standalone text of plugins/yandex-mail/skills/yandex-mail/SKILL.md
+is also offered under the MIT No Attribution (MIT-0) license on ClawHub.
+The full plugin and its code are distributed under Apache License 2.0.

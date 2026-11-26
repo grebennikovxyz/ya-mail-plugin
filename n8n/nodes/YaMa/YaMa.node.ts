@@ -9,6 +9,9 @@ import type {
 } from 'n8n-workflow';
 import catalog from './catalog.json';
 
+// Compiled nodes live in dist/nodes/YaMa inside the installed npm package.
+const packageVersion: string = require('../../../package.json').version;
+
 type Field = {
   name: string;
   type: string;
@@ -186,7 +189,7 @@ export class YaMa implements INodeType {
           {
             protocolVersion,
             capabilities: {},
-            clientInfo: { name: 'n8n-nodes-ya-ma', version: '0.5.0' },
+            clientInfo: { name: 'n8n-nodes-ya-ma', version: packageVersion },
           },
           1,
         );

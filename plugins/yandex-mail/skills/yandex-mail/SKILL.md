@@ -1,7 +1,11 @@
 ---
 name: yandex-mail
 description: Ya-Ma читает Яндекс Почту, сохраняет вложения в выбранную папку Ya-Di, передаёт сроки в Ya-Cal и проверяет входящие по расписанию.
+homepage: https://github.com/grebennikovxyz/ya-mail-plugin
+license: MIT-0
 ---
+
+В OpenClaw для этих действий нужен MCP-сервер `yandex-mail`. Если его инструменты недоступны, предложи подключить полный плагин через `openclaw plugins install yandex-mail --marketplace grebennikovxyz/ya-mail-plugin` с установленной на хосте командой `ya-mail`.
 
 Вызови `list_accounts`. Для первого подключения предложи пользователю открыть локальный мастер `ya-mail connect`. Пароли приложений и OAuth-токены вводит только владелец в своём мастере.
 
