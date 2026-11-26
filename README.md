@@ -54,7 +54,22 @@ openclaw plugins inspect yandex-mail
 
 Откройте новый локальный чат и попросите «Покажи подключённые ящики». В ответе должны быть адрес из мастера и выбранный режим доступа.
 
-### Другие способы установки
+## Установка из ClawHub для OpenClaw
+
+Если выбрали реестр ClawHub, выполните первый шаг установки `ya-mail` и подключения ящика на хосте Gateway. Затем установите полный плагин. Он включает навык и конфигурацию MCP для почты и Яндекс 360. [Полный плагин Ya-Ma в ClawHub](https://clawhub.ai/grebennikovxyz/plugins/yandex-mail)
+
+```sh
+openclaw plugins install yandex-mail --accept-capabilities
+openclaw plugins inspect yandex-mail
+```
+
+Если MCP-сервер `yandex-mail` уже подключён вручную, можно добавить только навык. В каталоге рабочего пространства OpenClaw выполните команду ниже. Для неё нужен CLI `clawhub`, который устанавливается командой `npm install -g clawhub`. [Навык Ya-Ma в ClawHub](https://clawhub.ai/grebennikovxyz/skills/ya-ma)
+
+```sh
+clawhub install @grebennikovxyz/ya-ma
+```
+
+## Другие способы установки
 
 **OpenClaw из релиза GitHub.** На хосте Gateway установите команду `ya-mail` из первого шага. Скачайте архив с окончанием `-clawhub.tgz` и передайте его путь команде `openclaw plugins install` с флагами `--force --accept-capabilities`. [Архивы последнего релиза](https://github.com/grebennikovxyz/ya-mail-plugin/releases/latest)
 
