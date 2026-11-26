@@ -17,11 +17,11 @@ REGISTRY = "https://clawhub.ai"
 SKILL = PLUGIN / "skills/yandex-mail"
 
 
-def skill_visible(cli, env, owner, version):
+def skill_visible(cli, env, owner, version, root=ROOT):
     """Require the public file list to match the local skill before reporting success."""
     result = subprocess.run(
         [cli, "inspect", f"@{owner}/ya-ma", "--version", version, "--files", "--json"],
-        cwd=ROOT,
+        cwd=root,
         env=env,
         capture_output=True,
         text=True,
@@ -36,15 +36,17 @@ def skill_visible(cli, env, owner, version):
     release = data.get("version") or {}
     if release.get("version") != version:
         return False
-    expected = hashlib.sha256((ROOT / SKILL / "SKILL.md").read_bytes()).hexdigest()
+    expected = hashlib.sha256((root / SKILL / "SKILL.md").read_bytes()).hexdigest()
     files = {f["path"]: f["sha256"] for f in release["files"]}
     if files != {"SKILL.md": expected}:
         raise SystemExit(f"Existing skill {version} has different content")
     return True
 
 
-def run(channel, publish, config_dir):
-    version = sync(ROOT, tag=os.environ.get("GITHUB_REF_NAME") if publish else None)
+def run(channel, publish, config_dir, root, tag):
+    version = sync(root, tag=tag)
+    if publish and not tag:
+        raise SystemExit("A verified release tag is required for publication")
     cli = shutil.which("clawhub")
     if not cli:
         raise SystemExit("Install clawhub@0.27.0 to run this check")
@@ -82,7 +84,7 @@ def run(channel, publish, config_dir):
             json.dumps({"registry": REGISTRY, "token": token}), encoding="utf-8"
         )
     commit = subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+        ["git", "rev-parse", "HEAD"], cwd=root, text=True
     ).strip()
     source = [
         "--source-repo",
@@ -93,7 +95,7 @@ def run(channel, publish, config_dir):
     if publish:
         source += ["--source-ref", f"refs/tags/v{version}", "--owner", owner]
     if channel == "bundle":
-        archive = ROOT / "dist" / f"yandex-mail-{version}-clawhub.tgz"
+        archive = root / "dist" / f"yandex-mail-{version}-clawhub.tgz"
         if not archive.is_file():
             raise SystemExit(f"Build or download {archive.name} first")
         if (
@@ -110,7 +112,7 @@ def run(channel, publish, config_dir):
                     version,
                 ],
                 env=env,
-                cwd=ROOT,
+                cwd=root,
             ).returncode
             == 0
         ):
@@ -129,12 +131,12 @@ def run(channel, publish, config_dir):
         if publish:
             command += ["--wait", "--wait-timeout", "1800"]
     else:
-        if publish and skill_visible(cli, env, owner, version):
+        if publish and skill_visible(cli, env, owner, version, root):
             return
         command = [
             "skill",
             "publish",
-            str(ROOT / SKILL),
+            str(root / SKILL),
             "--name",
             "Ya-Ma",
             "--slug",
@@ -145,13 +147,13 @@ def run(channel, publish, config_dir):
     if not publish:
         command.append("--dry-run")
     result = subprocess.run(
-        [cli, "--no-input", *command, "--version", version, *source], env=env, cwd=ROOT
+        [cli, "--no-input", *command, "--version", version, *source], env=env, cwd=root
     )
     if publish and channel == "skill":
         # A previous upload can have succeeded while its response was lost.
         # Only verified registry bytes can turn that ambiguous result into success.
         deadline = time.monotonic() + (1800 if result.returncode == 0 else 60)
-        while not skill_visible(cli, env, owner, version):
+        while not skill_visible(cli, env, owner, version, root):
             if time.monotonic() >= deadline:
                 raise SystemExit(
                     f"ClawHub has not published the expected skill {version}; check the release in ClawHub"
@@ -165,8 +167,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("channel", choices=("bundle", "skill"))
     parser.add_argument(
+        "--source", type=Path, default=ROOT, help="Checkout of the released sources"
+    )
+    parser.add_argument("--tag", help="Expected version tag for these sources")
+    parser.add_argument(
         "--publish", action="store_true", help="Upload to the public registry"
     )
     args = parser.parse_args()
     with tempfile.TemporaryDirectory() as tmp:
-        run(args.channel, args.publish, Path(tmp))
+        run(args.channel, args.publish, Path(tmp), args.source.resolve(), args.tag)

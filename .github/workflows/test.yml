@@ -1,5 +1,5 @@
 name: Verify plugin
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
@@ -58,7 +58,7 @@ jobs:
           name: integrations
           path: dist/*.tgz
   package:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: verify
     runs-on: windows-latest
     permissions:
@@ -103,7 +103,14 @@ jobs:
             gh release create "$GITHUB_REF_NAME" dist/*.whl dist/*.zip dist/*.tgz dist/SHA256SUMS.txt --verify-tag --title "Ya-Ma $GITHUB_REF_NAME" --generate-notes
           fi
   marketplaces:
-    needs: package
+    needs: [verify, package]
+    if: >-
+      !cancelled() && needs.verify.result == 'success' &&
+      (needs.package.result == 'success' ||
+       (needs.package.result == 'skipped' && github.ref == 'refs/heads/main'))
+    concurrency:
+      group: clawhub-${{ matrix.channel }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
@@ -115,20 +122,44 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - run: npm install --global --ignore-scripts clawhub@0.27.0
-      - name: Get the published release and check its checksum
+      - name: Select the stable release for this version
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # An old retry must never move the public latest tag backwards.
-          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" = "$GITHUB_REF_NAME"
-          asset="yandex-mail-${GITHUB_REF_NAME#v}-clawhub.tgz"
-          gh release download "$GITHUB_REF_NAME" --dir dist --pattern "$asset" --pattern SHA256SUMS.txt
-          (cd dist && awk -v file="$asset" '$2 == file {print; found++} END {if (found != 1) exit 1}' SHA256SUMS.txt | sha256sum --check --strict)
+          tag="v$(python scripts/marketplaces.py)"
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          if [[ "$latest" != "$tag" ]]; then
+            echo "Current stable release is $latest. Waiting for $tag."
+            [[ "$GITHUB_REF_TYPE" != tag ]] || exit 1
+            exit 0
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        if: steps.release.outputs.tag
+        with:
+          ref: refs/tags/${{ steps.release.outputs.tag }}
+          path: release-source
+      - uses: actions/setup-node@v4
+        if: steps.release.outputs.tag
+        with:
+          node-version: '24'
+      - run: npm install --global --ignore-scripts clawhub@0.27.0
+        if: steps.release.outputs.tag
+      - name: Get the published release and check its checksum
+        if: steps.release.outputs.tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          asset="yandex-mail-${TAG#v}-clawhub.tgz"
+          gh release download "$TAG" --dir release-source/dist --pattern "$asset" --pattern SHA256SUMS.txt
+          cd release-source/dist
+          test -s "$asset"
+          sha256sum --check --strict --ignore-missing SHA256SUMS.txt
       - name: Publish the verified version
+        if: steps.release.outputs.tag
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
-        run: python scripts/clawhub_release.py ${{ matrix.channel }} --publish
+          TAG: ${{ steps.release.outputs.tag }}
+        run: python scripts/clawhub_release.py ${{ matrix.channel }} --publish --source release-source --tag "$TAG"
