@@ -133,7 +133,16 @@ def test_manifest_stdio_handshake(server_name, tmp_path):
                 "set_folder_rule",
                 "acknowledge_batch",
             } <= by_name.keys()
-            assert by_name["read_message"].annotations.readOnlyHint
+            for name in (
+                "search_messages", "read_message", "read_messages", "read_thread",
+                "mailbox_overview", "list_drafts", "resolve_recipient", "export_mail_memory",
+            ):
+                hints = by_name[name].annotations
+                assert not hints.readOnlyHint
+                assert not hints.destructiveHint
+                assert hints.openWorldHint
+            assert by_name["read_attachment"].annotations.readOnlyHint
+            assert by_name["forget_mail_memory"].annotations.destructiveHint
             assert manifest["interface"]["displayName"] == "Ya-Ma"
             assert (bundle / manifest["interface"]["composerIcon"]).is_file()
             assert not by_name["send_email"].annotations.readOnlyHint
