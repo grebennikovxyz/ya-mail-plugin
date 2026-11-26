@@ -4,11 +4,12 @@ import smtplib
 from contextlib import nullcontext
 from email import policy
 from email.message import EmailMessage
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
-from conftest import consent, send_now
+from conftest import accept_digest, consent, send_now
 from pydantic import ValidationError
 
 from ya_mail import accounts, mail, native, outbox, server, transport
@@ -214,7 +215,11 @@ def test_move_reject_mixed_refs_before_change(env):
         )
     assert b.data["INBOX"]
     assert (
-        asyncio.run(server.move_messages([r], consent(), role="archive"))["destination"]
+        asyncio.run(
+            server.move_messages(
+                [r], SimpleNamespace(elicit=accept_digest), role="archive"
+            )
+        )["destination"]
         == "Archive"
     )
     assert not b.data["INBOX"] and b.data["Archive"]

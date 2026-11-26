@@ -65,6 +65,8 @@ def database():
                 id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL DEFAULT 1,
                 attempt INTEGER NOT NULL DEFAULT 0, success INTEGER, latest TEXT,
                 failed INTEGER NOT NULL DEFAULT 0, notified TEXT);
+            CREATE TABLE IF NOT EXISTS removal_counter(
+                id INTEGER PRIMARY KEY CHECK(id=1), number INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS feeds(
                 email TEXT REFERENCES accounts(email) ON DELETE CASCADE, folder TEXT, name TEXT,
                 validity INTEGER NOT NULL, position INTEGER NOT NULL, batch_end INTEGER, receipt TEXT,

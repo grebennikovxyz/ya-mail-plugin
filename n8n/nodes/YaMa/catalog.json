@@ -65,7 +65,7 @@
     ]
   },
   "lazy_confirm_trash": {
-    "description": "Show a page of proposed advertisements and move only after interactive owner confirmation.",
+    "description": "Show the proposed messages. Move only after the owner enters this digest's phrase in the MCP form.",
     "fields": [
       {
         "name": "account",
@@ -371,7 +371,7 @@
     ]
   },
   "move_messages": {
-    "description": "Move a selected batch in one folder, archive, or move to Trash. Choose either an exact folder or a system role. No mailbox-wide expunge.",
+    "description": "Move selected messages in one mailbox. Moving to Trash, Spam or Drafts requires the owner to type the displayed digest phrase.",
     "fields": [
       {
         "name": "refs",

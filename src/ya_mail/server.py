@@ -149,7 +149,7 @@ async def lazy_run(
 async def lazy_confirm_trash(
     account: Short, run_id: Short, ctx: Context, limit: PageSize = 25
 ) -> dict:
-    """Show a page of proposed advertisements and move only after interactive owner confirmation."""
+    """Show the proposed messages. Move only after the owner enters this digest's phrase in the MCP form."""
     from .lazy_worker import confirm_trash
 
     return await confirm_trash(account, run_id, limit, ctx)
@@ -464,7 +464,7 @@ async def move_messages(
     folder: Short | None = None,
     role: Literal["archive", "trash", "spam", "drafts", "sent"] | None = None,
 ) -> dict:
-    """Move a selected batch in one folder, archive, or move to Trash. Choose either an exact folder or a system role. No mailbox-wide expunge."""
+    """Move selected messages in one mailbox. Moving to Trash, Spam or Drafts requires the owner to type the displayed digest phrase."""
     return await removal.move(refs, folder, role, ctx, mailbox)
 
 
