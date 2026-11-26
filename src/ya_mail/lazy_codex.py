@@ -14,6 +14,8 @@ from urllib.parse import urlsplit
 from .accounts import Problem
 from .lazy_store import window
 
+CLASSIFICATION_TIMEOUT = 90
+
 RESULT = {
     "type": "object",
     "properties": {
@@ -445,7 +447,9 @@ async def classify(model, item, owner=None):
             start_new_session=os.name != "nt",
         )
         try:
-            await asyncio.wait_for(proc.communicate(prompt(item).encode()), 90)
+            await asyncio.wait_for(
+                proc.communicate(prompt(item).encode()), CLASSIFICATION_TIMEOUT
+            )
             if proc.returncode or not output.is_file():
                 raise Problem("Классификатор Codex не вернул решение.")
             return json.loads(output.read_text(encoding="utf-8"))

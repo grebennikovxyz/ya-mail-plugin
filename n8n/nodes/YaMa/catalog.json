@@ -174,7 +174,7 @@
     ]
   },
   "read_message": {
-    "description": "Read a message without marking it seen; list attachments and page through the body.",
+    "description": "Read without marking seen. Record contacts according to the mailbox learning mode and refresh any enabled local export.",
     "fields": [
       {
         "name": "ref",
@@ -197,7 +197,7 @@
     ]
   },
   "read_messages": {
-    "description": "Read a batch from one account with a body preview for each message.",
+    "description": "Preview message bodies from one account. Apply its contact learning and local export settings to each read.",
     "fields": [
       {
         "name": "refs",
@@ -605,7 +605,7 @@
     ]
   },
   "resolve_recipient": {
-    "description": "Look up a name, alias or address, consulting permitted Sent headers from the last 90 days. Ask the owner when needs_choice.",
+    "description": "Resolve a recipient using the local contacts index. Learning can index 90 days of permitted Sent headers. Ask the owner when needs_choice.",
     "fields": [
       {
         "name": "account",
