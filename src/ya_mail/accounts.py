@@ -61,10 +61,21 @@ def database():
         db.executescript("""
             CREATE TABLE IF NOT EXISTS accounts(
                 email TEXT PRIMARY KEY, mode TEXT NOT NULL, secret TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS release_checks(
+                id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL DEFAULT 1,
+                attempt INTEGER NOT NULL DEFAULT 0, success INTEGER, latest TEXT,
+                failed INTEGER NOT NULL DEFAULT 0, notified TEXT);
             CREATE TABLE IF NOT EXISTS feeds(
                 email TEXT REFERENCES accounts(email) ON DELETE CASCADE, folder TEXT, name TEXT,
                 validity INTEGER NOT NULL, position INTEGER NOT NULL, batch_end INTEGER, receipt TEXT,
                 PRIMARY KEY(email, folder, name));
+            CREATE TABLE IF NOT EXISTS revisions(
+                email TEXT REFERENCES accounts(email) ON DELETE CASCADE, folder TEXT,
+                validity INTEGER, uid INTEGER, digest TEXT NOT NULL, message_id TEXT NOT NULL,
+                result TEXT, PRIMARY KEY(email,folder,validity,uid));
+            CREATE TABLE IF NOT EXISTS local_tags(
+                email TEXT REFERENCES accounts(email) ON DELETE CASCADE, flag TEXT COLLATE NOCASE,
+                identity TEXT, PRIMARY KEY(email,flag,identity));
             CREATE TABLE IF NOT EXISTS sends(
                 email TEXT REFERENCES accounts(email) ON DELETE CASCADE, request TEXT, digest TEXT,
                 message_id TEXT, result TEXT, PRIMARY KEY(email,request));
@@ -86,6 +97,43 @@ def database():
             CREATE TABLE IF NOT EXISTS routed_messages(
                 email TEXT REFERENCES accounts(email) ON DELETE CASCADE, digest TEXT, origin TEXT NOT NULL,
                 PRIMARY KEY(email,digest));
+            CREATE TABLE IF NOT EXISTS delivery_jobs(
+                id TEXT PRIMARY KEY, email TEXT REFERENCES accounts(email) ON DELETE CASCADE,
+                request TEXT NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL, due REAL,
+                mime BLOB, preview TEXT NOT NULL, sources TEXT NOT NULL, draft_ref TEXT,
+                result TEXT, started INTEGER NOT NULL DEFAULT 0, UNIQUE(email,request));
+            CREATE TABLE IF NOT EXISTS draft_origins(
+                email TEXT REFERENCES accounts(email) ON DELETE CASCADE, ref TEXT PRIMARY KEY,
+                sources TEXT NOT NULL, protected INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS observed_uids(
+                email TEXT REFERENCES accounts(email) ON DELETE CASCADE, folder TEXT,
+                validity INTEGER, uid INTEGER, observed REAL NOT NULL, PRIMARY KEY(email,folder,validity,uid));
+            CREATE TABLE IF NOT EXISTS learning(
+                email TEXT PRIMARY KEY REFERENCES accounts(email) ON DELETE CASCADE, mode TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS memory_exports(
+                email TEXT PRIMARY KEY REFERENCES accounts(email) ON DELETE CASCADE);
+            CREATE TABLE IF NOT EXISTS contact_evidence(
+                email TEXT REFERENCES accounts(email) ON DELETE CASCADE, ref TEXT, addr TEXT, name TEXT,
+                folder TEXT NOT NULL, identity TEXT NOT NULL, stamp REAL NOT NULL, subject TEXT, sent INTEGER,
+                PRIMARY KEY(email,ref,addr));
+            CREATE TABLE IF NOT EXISTS contact_aliases(
+                email TEXT REFERENCES accounts(email) ON DELETE CASCADE, addr TEXT, alias TEXT,
+                PRIMARY KEY(email,addr,alias));
+            CREATE TABLE IF NOT EXISTS forgotten_contacts(
+                email TEXT REFERENCES accounts(email) ON DELETE CASCADE, addr TEXT, PRIMARY KEY(email,addr));
+            CREATE TABLE IF NOT EXISTS contact_choices(
+                email TEXT REFERENCES accounts(email) ON DELETE CASCADE, addr TEXT, PRIMARY KEY(email,addr));
+            CREATE TABLE IF NOT EXISTS sent_index(
+                email TEXT REFERENCES accounts(email) ON DELETE CASCADE, folder TEXT, validity INTEGER,
+                position INTEGER NOT NULL, PRIMARY KEY(email,folder,validity));
+            CREATE TABLE IF NOT EXISTS mail_facts(
+                id INTEGER PRIMARY KEY, email TEXT REFERENCES accounts(email) ON DELETE CASCADE,
+                ref TEXT NOT NULL, category TEXT NOT NULL, fact TEXT NOT NULL, correspondent TEXT NOT NULL,
+                date TEXT NOT NULL, revision INTEGER NOT NULL, quote TEXT NOT NULL, UNIQUE(email,ref,category,fact));
+            CREATE TABLE IF NOT EXISTS fact_revisions(
+                fact_id INTEGER REFERENCES mail_facts(id) ON DELETE CASCADE, revision INTEGER,
+                ref TEXT NOT NULL, category TEXT NOT NULL, fact TEXT NOT NULL, correspondent TEXT NOT NULL,
+                date TEXT NOT NULL, quote TEXT NOT NULL, PRIMARY KEY(fact_id,revision));
         """)
         with db:
             yield db
@@ -160,6 +208,13 @@ def forget(email):
             "SELECT secret FROM accounts WHERE email=?", (email,)
         ).fetchone()
         if row:
+            from .knowledge import invalidate_files
+
+            invalidate_files(email)
             db.execute("DELETE FROM accounts WHERE email=?", (email,))
             if vault().get_password(SERVICE, row["secret"]) is not None:
                 vault().delete_password(SERVICE, row["secret"])
+
+    from .lazy_store import skill_path
+
+    skill_path(email).unlink(missing_ok=True)

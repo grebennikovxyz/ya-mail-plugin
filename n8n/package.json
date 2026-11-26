@@ -1,0 +1,46 @@
+{
+  "name": "n8n-nodes-ya-ma",
+  "version": "0.5.0",
+  "description": "Yandex Mail operations and scheduled feeds through a personal Ya-Ma gateway",
+  "author": "Антон Гребенников",
+  "license": "Apache-2.0",
+  "keywords": [
+    "n8n-community-node-package",
+    "yandex-mail",
+    "imap",
+    "mail"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/grebennikovxyz/ya-mail-plugin.git",
+    "directory": "n8n"
+  },
+  "homepage": "https://github.com/grebennikovxyz/ya-mail-plugin/tree/main/n8n",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copy-icon.cjs",
+    "prepack": "npm run build",
+    "test": "npm run build && node --test tests/*.test.cjs"
+  },
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/YaMaApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/YaMa/YaMa.node.js"
+    ]
+  },
+  "devDependencies": {
+    "n8n-workflow": "2.49.4",
+    "typescript": "5.9.3",
+    "@types/node": "22.19.1"
+  },
+  "peerDependencies": {
+    "n8n-workflow": ">=2.0.0 <3"
+  }
+}

@@ -8,10 +8,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from conftest import Box, Vault, consent, send_now
 from mcp import types
 from mcp.shared.memory import create_connected_server_and_client_session
 
-from conftest import Box, Vault
 from ya_mail import accounts, mail, native, server, transport
 
 
@@ -208,7 +208,7 @@ def test_bcc_overview_and_chosen_smtp_identity(boxes, monkeypatch):
             stored["In-Reply-To"] == msg["Message-ID"]
             and str(stored["References"]) == msg["Message-ID"]
         )
-        server.send_draft(mail.Ref(**draft["ref"]))
+        send_now(server.send_draft(mail.Ref(**draft["ref"]), consent()))
         smtp.login.assert_called_with(sender.login, sender.password)
         assert smtp.send_message.call_args.kwargs["from_addr"] == sender.email
     accounts.save(accounts.Account(second.email, "read", "synthetic"))
@@ -259,9 +259,11 @@ def test_folder_rules_cover_subtrees_old_refs_and_native(boxes, monkeypatch):
         lambda: server.route_attachments(ref, "42", "/", [], False),
         lambda: server.prepare_reply(ref, "reply", second.email),
         lambda: server.modify_messages([ref], mail.Changes(read=True)),
-        lambda: server.move_messages([ref], folder="INBOX"),
-        lambda: server.move_messages(
-            [ref.model_copy(update={"folder": "INBOX"})], folder=name
+        lambda: asyncio.run(server.move_messages([ref], consent(), folder="INBOX")),
+        lambda: asyncio.run(
+            server.move_messages(
+                [ref.model_copy(update={"folder": "INBOX"})], consent(), folder=name
+            )
         ),
         lambda: server.create_folder(first.email, "Отдел.Ещё"),
     ]:

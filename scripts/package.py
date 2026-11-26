@@ -9,14 +9,18 @@ import tempfile
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from marketplaces import sync
+
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "plugins" / "yandex-mail"
 DIST = ROOT / "dist"
-VERSION = json.loads((PLUGIN / "plugin.json").read_bytes())["version"]
+VERSION = sync(ROOT)
 FILES = [
     "plugin.json",
     ".codex-plugin/plugin.json",
     "mcp.json",
+    ".mcp.json",
+    ".claude-plugin/plugin.json",
     "assets/ya-ma.png",
     "skills/yandex-mail/SKILL.md",
 ]
@@ -79,7 +83,7 @@ def package(runtime=None):
         with ZipFile(path, "w", ZIP_DEFLATED) as archive:
             for f in FILES:
                 content = (PLUGIN / f).read_bytes()
-                if runtime and f == "mcp.json":
+                if runtime and f in {"mcp.json", ".mcp.json"}:
                     config = json.loads(content)
                     for server in config["mcpServers"].values():
                         server["command"] = "./runtime/python.exe"
@@ -108,16 +112,42 @@ def package(runtime=None):
     print(path.name)
 
 
+def clawhub_package():
+    """ClawHub accepts one bundle manifest. Package the Claude-format entrypoint."""
+    import io
+    import tarfile
+
+    path = DIST / f"yandex-mail-{VERSION}-clawhub.tgz"
+    with tarfile.open(path, "w:gz", format=tarfile.USTAR_FORMAT) as archive:
+        metadata = json.dumps(
+            {"name": "yandex-mail", "version": VERSION, "license": "Apache-2.0"}
+        ).encode()
+        entry = tarfile.TarInfo("package/package.json")
+        entry.size = len(metadata)
+        archive.addfile(entry, io.BytesIO(metadata))
+        for name in (
+            ".claude-plugin/plugin.json",
+            ".mcp.json",
+            "assets/ya-ma.png",
+            "skills/yandex-mail/SKILL.md",
+        ):
+            archive.add(PLUGIN / name, arcname="package/" + name, recursive=False)
+        for name in ("LICENSE", "NOTICE", "README.md"):
+            archive.add(ROOT / name, arcname="package/" + name, recursive=False)
+    return path
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--windows-runtime", type=Path)
     args = parser.parse_args()
     package()
+    clawhub_package()
     if args.windows_runtime:
         package(args.windows_runtime.resolve())
     with (DIST / "SHA256SUMS.txt").open("w", encoding="utf-8", newline="\n") as sums:
         for path in sorted(DIST.iterdir()):
-            if VERSION in path.name and path.suffix in {".zip", ".whl"}:
+            if VERSION in path.name and path.suffix in {".zip", ".whl", ".tgz"}:
                 with path.open("rb") as f:
                     sums.write(
                         f"{hashlib.file_digest(f, 'sha256').hexdigest()}  {path.name}\n"

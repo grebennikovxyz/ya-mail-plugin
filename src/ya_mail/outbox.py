@@ -3,6 +3,7 @@ import hashlib
 import json
 import re
 import smtplib
+import time
 from email import policy
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
@@ -103,6 +104,11 @@ def build(client, account, letter, *, original=None):
 
 def draft(client, account, letter, *, original=None):
     msg = build(client, account, letter, original=original)
+    refs = [r for r in (letter.reply_to_message, letter.forward_message) if r]
+    return save_draft(client, account, msg, refs)
+
+
+def save_draft(client, account, msg, sources, protected=False):
     folder = special(client, "drafts")
     allow(account.email, folder, client)
     reply = client.append(folder, msg.as_bytes(), flags=[r"\Draft", r"\Seen"])
@@ -125,6 +131,26 @@ def draft(client, account, letter, *, original=None):
                 ref = Ref(**found["messages"][0]["ref"])
         except (IMAP4.error, OSError, Problem):
             pass
+    if ref:
+        with database() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO observed_uids VALUES(?,?,?,?,?)",
+                (account.email, ref.folder, ref.validity, ref.uid, time.time()),
+            )
+            db.execute(
+                "INSERT OR REPLACE INTO draft_origins VALUES (?,?,?,?)",
+                (
+                    account.email,
+                    ref.model_dump_json(),
+                    json.dumps([r.model_dump() for r in sources]),
+                    int(protected),
+                ),
+            )
+    elif protected or sources:
+        raise Problem(
+            "Черновик сохранён, но сервер не подтвердил его UID. Проверьте Черновики по Message-ID "
+            + str(msg["Message-ID"])
+        )
     return {
         "from": str(msg["From"]),
         "to": [a.addr_spec for a in msg["To"].addresses] if msg["To"] else [],
@@ -135,13 +161,7 @@ def draft(client, account, letter, *, original=None):
     }
 
 
-def submit(account, request, fingerprint, msg):
-    """Reserve before SMTP DATA. An ambiguous delivery may never be retried automatically."""
-    digest = hashlib.sha256(fingerprint).hexdigest()
-    request = str(request)
-    message_id = str(msg.get("Message-ID") or make_msgid())
-    if not msg.get("Message-ID"):
-        msg["Message-ID"] = message_id
+def envelope(account, msg):
     recipients = [
         addr.addr_spec
         for key in ("To", "Cc", "Bcc")
@@ -170,6 +190,20 @@ def submit(account, request, fingerprint, msg):
     recipients = list(dict.fromkeys(address(r) for r in recipients))
     if len(msg.as_bytes()) > 25 * 1024 * 1024:
         raise Problem("Исходящее письмо превышает 25 МиБ.")
+    return recipients
+
+
+def submit(account, request, fingerprint, msg):
+    """Reserve before SMTP DATA. An ambiguous delivery may never be retried automatically."""
+    return submit_digest(account, request, hashlib.sha256(fingerprint).hexdigest(), msg)
+
+
+def submit_digest(account, request, digest, msg):
+    request = str(request)
+    message_id = str(msg.get("Message-ID") or make_msgid())
+    if not msg.get("Message-ID"):
+        msg["Message-ID"] = message_id
+    recipients = envelope(account, msg)
 
     def existing(db):
         row = db.execute(
@@ -237,3 +271,92 @@ def submit(account, request, fingerprint, msg):
                 (json.dumps(result), account.email, request),
             )
         return result
+
+
+def revise(client, account, ref, letter, sources):
+    from . import mail, removal
+
+    if ref.folder != special(client, "drafts"):
+        raise Problem("Для редактирования выберите письмо из Черновиков.")
+    trash = special(client, "trash")
+    allow(account.email, ref.folder, client)
+    allow(account.email, trash, client)
+    if trash == ref.folder:
+        raise Problem("Выберите разные системные папки для Черновиков и Корзины.")
+    key = (account.email, ref.folder, ref.validity, ref.uid)
+    digest = hashlib.sha256(letter.model_dump_json().encode()).hexdigest()
+    msg = build(client, account, letter)
+    with database() as db:
+        db.execute("BEGIN IMMEDIATE")
+        old = db.execute(
+            "SELECT digest,message_id,result FROM revisions WHERE email=? AND folder=? AND validity=? AND uid=?",
+            key,
+        ).fetchone()
+        if old:
+            if old["digest"] != digest:
+                raise Problem(
+                    "Эта версия уже редактировалась. Получите актуальный черновик."
+                )
+            if old["result"]:
+                return json.loads(old["result"])
+            raise Problem(
+                "Состояние сохранения неизвестно. Проверьте Черновики по Message-ID "
+                + old["message_id"]
+            )
+        mail.checked_folder(client, ref, account, write=True)
+        state = db.execute(
+            "SELECT state FROM delivery_jobs WHERE email=? AND draft_ref=?",
+            (account.email, ref.model_dump_json()),
+        ).fetchone()
+        if state and state[0] not in ("stopped", "failed"):
+            raise Problem(
+                "Этот черновик связан с очередью. Используйте edit_queued_email и номер отправки."
+            )
+        origin = db.execute(
+            "SELECT protected FROM draft_origins WHERE ref=?", (ref.model_dump_json(),)
+        ).fetchone()
+        if origin and origin[0] < 0:
+            raise Problem("Выберите последнюю версию черновика.")
+        if ref.uid not in client.get_flags([ref.uid]):
+            raise Problem("Исходный черновик перемещён. Обновите список.")
+        old_msg = mail.reply_source(client, ref, account)
+        if not letter.reply_to_message and not letter.forward_message:
+            for header in ("In-Reply-To", "References"):
+                if old_msg.get(header):
+                    msg[header] = old_msg[header]
+        db.execute(
+            "INSERT INTO draft_origins VALUES(?,?,?,-1) ON CONFLICT(ref) DO UPDATE SET protected=-1",
+            (
+                account.email,
+                ref.model_dump_json(),
+                json.dumps([s.model_dump() for s in sources]),
+            ),
+        )
+        db.execute(
+            "INSERT INTO revisions VALUES(?,?,?,?,?,?,NULL)",
+            (*key, digest, str(msg["Message-ID"])),
+        )
+
+    for src in (letter.reply_to_message, letter.forward_message):
+        if src and src not in sources:
+            sources = [*sources, src]
+    result = save_draft(client, account, msg, sources, protected=2)
+    result["original"] = "check_original"
+
+    def record():
+        with database() as db:
+            db.execute(
+                "UPDATE revisions SET result=? WHERE email=? AND folder=? AND validity=? AND uid=?",
+                (json.dumps(result), *key),
+            )
+
+    record()
+    try:
+        mail.checked_folder(client, ref, account, write=True)
+        reply = removal.move_uids(client, [ref.uid], trash)
+        removal.record_move(account.email, trash, 1, reply)
+    except (IMAP4.error, OSError, Problem):
+        return result
+    result["original"] = "moved_to_trash"
+    record()
+    return result

@@ -1,0 +1,14 @@
+{
+  "name": "grebennikov-ya-mail",
+  "metadata": {"description": "Яндекс Почта для Claude Code"},
+  "owner": {
+    "name": "Антон Гребенников"
+  },
+  "plugins": [
+    {
+      "name": "yandex-mail",
+      "description": "Яндекс Почта для агентов. Поиск, метки, переписка и проверка новых писем по расписанию.",
+      "source": "./plugins/yandex-mail"
+    }
+  ]
+}
