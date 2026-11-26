@@ -458,3 +458,33 @@ def test_manual_mcp_sampling_proposes_instead_of_moving(inbox):
     )
     assert worker.digest(acc.email, result["run"])["counts"] == {"awaiting_trash": 1}
     assert not box.moves
+
+
+def test_mcp_sampling_timeout_releases_pending_mail(inbox, monkeypatch):
+    from types import SimpleNamespace
+    from ya_mail import server
+
+    acc, box, _ = inbox
+    box.message(1)
+    cancelled = []
+
+    async def unresponsive(messages, **options):
+        try:
+            await asyncio.Future()
+        finally:
+            cancelled.append(True)
+
+    session = SimpleNamespace(
+        check_client_capability=lambda _: True, create_message=unresponsive
+    )
+    monkeypatch.setattr(codex, "CLASSIFICATION_TIMEOUT", 0.05)
+    with pytest.raises(server.Problem, match="не ответил вовремя"):
+        run = server.lazy_run(acc.email, 1, 12000, SimpleNamespace(session=session))
+        asyncio.run(asyncio.wait_for(run, 5))
+
+    assert cancelled and not box.moves
+    with store.db() as db:
+        row = db.execute("SELECT state, run FROM lazy_queue").fetchone()
+        assert (row["state"], row["run"]) == ("pending", None)
+    with store.lock().acquire(timeout=0):
+        pass

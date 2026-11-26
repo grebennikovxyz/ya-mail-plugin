@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hashlib
 import json
@@ -111,7 +112,7 @@ async def lazy_run(
         return await manual(acc.email, max_messages, token_budget)
 
     async def classify(item):
-        response = await ctx.session.create_message(
+        request = ctx.session.create_message(
             [
                 types.SamplingMessage(
                     role="user",
@@ -125,6 +126,12 @@ async def lazy_run(
             temperature=0,
             model_preferences=types.ModelPreferences(costPriority=1, speedPriority=0.8),
         )
+        try:
+            response = await asyncio.wait_for(request, lazy_codex.CLASSIFICATION_TIMEOUT)
+        except TimeoutError:
+            raise Problem(
+                "MCP-клиент не ответил вовремя. Пакет доступен для повторного разбора."
+            ) from None
         try:
             return json.loads(response.content.text)
         except (ValueError, AttributeError):
