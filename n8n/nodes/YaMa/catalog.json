@@ -1,7 +1,32 @@
 {
   "list_accounts": {
-    "description": "List locally connected addresses and their access modes. For first connection run ya-mail connect.",
+    "description": "List locally connected addresses and their access modes. For a new mailbox call begin_mailbox_connection.",
     "fields": []
+  },
+  "begin_mailbox_connection": {
+    "description": "Start a private app-password form for the owner. Follow the returned form instructions in the owner's private chat. Set same_device only if the owner opens the browser on the Gateway host. Check list_accounts after submission.",
+    "fields": [
+      {
+        "name": "account",
+        "type": "string",
+        "default": ""
+      },
+      {
+        "name": "same_device",
+        "type": "boolean",
+        "default": false
+      }
+    ]
+  },
+  "finish_mailbox_connection": {
+    "description": "Redeem the encrypted YM1 code from the owner's browser once. Accept only the sealed code.",
+    "fields": [
+      {
+        "name": "envelope",
+        "type": "string",
+        "required": true
+      }
+    ]
   },
   "version_status": {
     "description": "Show installed and published stable versions. Refresh explicitly to check GitHub now.",

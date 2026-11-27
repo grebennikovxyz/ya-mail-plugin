@@ -2,17 +2,12 @@
   "mcpServers": {
     "yandex-mail": {
       "type": "stdio",
-      "command": "ya-mail",
+      "command": "node",
       "args": [
+        "${CLAUDE_PLUGIN_ROOT}/launch.mjs",
         "serve"
-      ]
-    },
-    "yandex-mail-360": {
-      "type": "stdio",
-      "command": "ya-mail",
-      "args": [
-        "serve-360"
-      ]
+      ],
+      "connectionTimeoutMs": 240000
     }
   }
 }

@@ -10,11 +10,9 @@ from email import policy
 from email.message import EmailMessage
 from pathlib import Path
 
-import pytest
 from imapclient import IMAPClient
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-
 from ya_mail import accounts, mail
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,8 +83,8 @@ def test_imap_fetch_header_literal_and_unicode_search():
             thread.join()
 
 
-@pytest.mark.parametrize("server_name", ["yandex-mail", "yandex-mail-360"])
-def test_manifest_stdio_handshake(server_name, tmp_path):
+def test_manifest_stdio_handshake(tmp_path):
+    server_name = "yandex-mail"
     bundle = ROOT / "plugins/yandex-mail"
     marketplace = json.loads(
         (ROOT / ".agents/plugins/marketplace.json").read_text(encoding="utf-8")
@@ -99,7 +97,7 @@ def test_manifest_stdio_handshake(server_name, tmp_path):
     config = json.loads((bundle / manifest["mcpServers"]).read_text(encoding="utf-8"))[
         "mcpServers"
     ][server_name]
-    assert config["command"] == "ya-mail"
+    assert config == {"type": "stdio", "command": "ya-mail", "args": ["serve"]}
     env = {**os.environ, "PYTHONUTF8": "1"}
     # Windows platformdirs can use Known Folder APIs rather than LOCALAPPDATA.
     # Isolate the test store directly so CI never queries an actual user vault.
@@ -108,7 +106,7 @@ def test_manifest_stdio_handshake(server_name, tmp_path):
     async def check():
         params = StdioServerParameters(
             command=sys.executable,
-            args=["-c", bootstrap, str(tmp_path), *config["args"]],
+            args=["-c", bootstrap, str(tmp_path), config["args"][-1]],
             env=env,
         )
         async with (
@@ -117,9 +115,6 @@ def test_manifest_stdio_handshake(server_name, tmp_path):
         ):
             await session.initialize()
             tools = (await session.list_tools()).tools
-            if server_name == "yandex-mail-360":
-                assert tools == []
-                return
             by_name = {t.name: t for t in tools}
             assert {
                 "read_message",

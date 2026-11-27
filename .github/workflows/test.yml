@@ -35,6 +35,10 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         with:
           node-version: '24'
+      - name: Check cold OpenClaw runtime and offline restart
+        if: matrix.os == 'ubuntu-latest'
+        timeout-minutes: 8
+        run: python scripts/check_openclaw_bundle.py
       - name: Preview both ClawHub publications without publisher credentials
         if: matrix.os == 'ubuntu-latest'
         run: |

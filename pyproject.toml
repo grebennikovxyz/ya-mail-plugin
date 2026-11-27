@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "grebennikov-ya-mail"
-version = "0.5.2"
-description = "Ya-Ma — почтовый плагин для локальных агентов и расписаний Codex"
+version = "0.6.0"
+description = "Ya-Ma вЂ” РїРѕС‡С‚РѕРІС‹Р№ РїР»Р°РіРёРЅ РґР»СЏ Р»РѕРєР°Р»СЊРЅС‹С… Р°РіРµРЅС‚РѕРІ Рё СЂР°СЃРїРёСЃР°РЅРёР№ Codex"
 requires-python = ">=3.13"
 readme = "README.md"
 license = "Apache-2.0"
@@ -13,7 +13,7 @@ license-files = ["LICENSE", "NOTICE"]
 dependencies = [
     "IMAPClient>=3.0.1,<4", "mcp>=1.30,<2", "httpx>=0.28,<1", "pydantic>=2.11,<3",
     "filelock>=3.13,<4", "websockets>=15,<17", "uvicorn>=0.31,<1", "starlette>=0.40,<1",
-    "keyring>=25,<26", "platformdirs>=4,<5",
+    "cryptography>=44,<52", "keyring>=25,<26", "platformdirs>=4,<5",
     "grebennikov-yandex-disk @ https://github.com/grebennikovxyz/yandex-disk/releases/download/v0.1.2/grebennikov_yandex_disk-0.1.2-py3-none-any.whl#sha256=a6450dedfa1ccd99ea1ca2b95cee92a5bfe04290748b60523903284e58140240",
 ]
 
@@ -24,4 +24,4 @@ allow-direct-references = true
 ya-mail = "ya_mail.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/ya_mail"]
+packages = ["plugins/yandex-mail/backend/ya_mail"]

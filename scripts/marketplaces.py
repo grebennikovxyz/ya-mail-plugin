@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = Path("plugins/yandex-mail")
 MANIFESTS = (
     PLUGIN / "plugin.json",
+    PLUGIN / "package.json",
+    PLUGIN / "openclaw.plugin.json",
     PLUGIN / ".codex-plugin/plugin.json",
     PLUGIN / ".claude-plugin/plugin.json",
     Path("n8n/package.json"),
@@ -55,12 +57,19 @@ def sync(root, new_version=None, tag=None):
         records = [data]
         if relative.name == "package-lock.json":
             records.append(data["packages"][""])
-        if relative.is_relative_to(PLUGIN) and data["name"] != PLUGIN.name:
+        if relative.is_relative_to(PLUGIN) and data.get("id", data["name"]) != PLUGIN.name:
             raise ValueError(f"Unexpected plugin name in {relative}")
         if any(record["version"] != version for record in records):
             for record in records:
                 record["version"] = version
             edits[path] = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    # OpenClaw installs from the packaged source without needing a Git checkout.
+    backend_project = root / PLUGIN / "backend/pyproject.toml"
+    backend = edits.get(project, toml).replace('readme = "README.md"\n', "").replace(
+        'license-files = ["LICENSE", "NOTICE"]\n', ""
+    ).replace('"plugins/yandex-mail/backend/ya_mail"', '"ya_mail"')
+    if not backend_project.exists() or backend_project.read_text(encoding="utf-8") != backend:
+        edits[backend_project] = backend
     if edits and new_version is None:
         raise ValueError(
             "Version mismatch: " + ", ".join(str(p.relative_to(root)) for p in edits)

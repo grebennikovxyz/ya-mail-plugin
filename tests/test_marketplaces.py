@@ -15,6 +15,7 @@ def test_single_version_bump_and_release_checks(tmp_path, monkeypatch):
     for path in (
         *m.MANIFESTS,
         "pyproject.toml",
+        m.PLUGIN / "backend/pyproject.toml",
         ".agents/plugins/marketplace.json",
         ".claude-plugin/marketplace.json",
     ):

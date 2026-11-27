@@ -10,7 +10,7 @@ from conftest import consent
 from mcp import types
 from mcp.shared.memory import create_connected_server_and_client_session
 
-from ya_mail import accounts, economy, mail, native, outbox, removal, server
+from ya_mail import accounts, economy, mail, outbox, removal, server
 
 
 def roles(box):
@@ -88,8 +88,6 @@ def test_bulk_trash_digest_snapshot(env, action):
 
     asyncio.run(check())
     assert set(box.data["INBOX"]) == ({3} if action == "arrival" else {1, 2, 3})
-    for name in ["mail.move_messages", "mail_delete_message"]:
-        assert not native.allowed(name, "organize")
 
 
 @pytest.mark.parametrize(

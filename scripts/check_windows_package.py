@@ -21,9 +21,6 @@ async def verify(folder):
     for key, entry in config["mcpServers"].items():
         command = (folder / entry["command"]).resolve()
         assert command == Path(sys.executable).resolve()
-        # Introspecting the optional 360 server would use a previously configured token.
-        if key == "yandex-mail-360":
-            continue
         # Exercise the packaged entry point with an empty store. A normal serve
         # invocation also resumes real pending sends for the current OS user.
         args = entry["args"]
@@ -77,7 +74,6 @@ if __name__ == "__main__":
                 assert not any(p.endswith("direct_url.json") for p in z.namelist())
                 assert {
                     "connect.cmd",
-                    "connect-360.cmd",
                     "runtime/LICENSE.txt",
                     "assets/ya-ma.png",
                     "NOTICE",

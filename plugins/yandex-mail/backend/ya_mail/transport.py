@@ -49,7 +49,7 @@ def outgoing(account):
         ) from None
 
 
-def connect(email, password, mode):
+def connect(email, password, mode, *, local_store=False):
     if mode not in MODES:
         raise Problem("Выберите режим доступа.")
     email = address(email).lower()
@@ -67,4 +67,4 @@ def connect(email, password, mode):
     if mode == "send":
         with outgoing(account):
             pass
-    save(account)
+    save(account, local_store=local_store)

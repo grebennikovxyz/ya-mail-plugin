@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+<title>Подключение Яндекс Почты · Ya-Ma</title><link rel="stylesheet" href="./setup.css"><script defer src="./setup.js"></script></head>
+<body><main><h1>Подключить Яндекс Почту</h1><p id="status" role="status">Откройте ссылку из личного чата с Ya-Ma.</p>
+<section id="wizard" hidden><p>В <a href="https://mail.yandex.ru/#setup/client" target="_blank" rel="noreferrer">настройках Почты</a> включите IMAP. В <a href="https://id.yandex.ru/security/app-passwords" target="_blank" rel="noreferrer">Яндекс ID</a> создайте пароль приложения типа «Почта» для этого ящика.</p>
+<label for="password">Пароль приложения</label><input type="password" id="password" autocomplete="off" maxlength="160">
+<label for="mode">Доступ агента</label><select id="mode"><option value="read">Только чтение</option><option value="organize">Чтение, папки, метки и черновики</option><option value="send">Также разрешить отправку</option></select>
+<label id="storage" hidden><input type="checkbox" id="local"> Разрешить хранение на моём Linux-сервере с локальным ключом вместо системного хранилища паролей. Ключ доступен пользователю службы и администратору.</label>
+<p>Браузер зашифрует пароль для вашей установки Ya-Ma. В личный чат отправьте только полученный код.</p>
+<button type="button" id="encrypt">Получить код для чата</button></section>
+<section id="result" hidden><label for="code">Одноразовый код для Ya-Ma</label><textarea id="code" readonly rows="5"></textarea><button type="button" id="copy">Скопировать код</button></section>
+<footer><a href="https://boosty.to/grebennikov.xyz/donate" target="_blank" rel="noopener noreferrer">Поддержать Ya-Ma на Boosty</a></footer>
+</main></body></html>

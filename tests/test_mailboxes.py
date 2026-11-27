@@ -12,7 +12,7 @@ from conftest import Box, Vault, consent, send_now
 from mcp import types
 from mcp.shared.memory import create_connected_server_and_client_session
 
-from ya_mail import accounts, mail, native, server, transport
+from ya_mail import accounts, mail, server, transport
 
 
 def test_unblock_requires_client_interaction(env):
@@ -240,10 +240,6 @@ def test_folder_rules_cover_subtrees_old_refs_and_native(boxes, monkeypatch):
     with pytest.raises(accounts.Problem):
         server.poll_new(first.email, "job", name)
     rule(first.email, "Отдел", "blocked")
-    monkeypatch.setattr(native, "record", lambda: ["organize", "synthetic"])
-    assert asyncio.run(native.list_tools()) == []
-    with pytest.raises(accounts.Problem, match="360"):
-        asyncio.run(native.call_tool("mail.read_message", {"id": "1"}))
     assert (
         next(f for f in server.list_folders(first.email) if f["folder"] == name)["mode"]
         == "blocked"

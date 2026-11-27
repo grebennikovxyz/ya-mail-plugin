@@ -1,10 +1,14 @@
 """Temporary setup form on loopback, also usable via a personal SSH tunnel."""
 
 import hmac
+import time
 import secrets
+import sys
 from html import escape
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlsplit
+
+from keyring.errors import KeyringError
 
 from . import wizard
 from .accounts import MODES, Problem
@@ -45,7 +49,18 @@ FORM = (
 )
 
 
-def handler(pairing_code):
+def handler(pairing_code, *, public_origin=None, path="/", email="", deadline=None):
+    form = FORM.replace('action="/"', f'action="{escape(path, quote=True)}"')
+    if deadline is not None:
+        form = form.replace("из вашего терминала", "из вашего личного чата")
+
+    if sys.platform == "linux":
+        checkbox = (
+            '<label><input style="width:auto" type="checkbox" name="local" value="yes"> '
+            "Разрешить хранение с локальным ключом пользователя службы на личном Linux-сервере.</label>"
+        )
+        form = form.replace("<button>", checkbox + "<button>", 1)
+
     class Setup(BaseHTTPRequestHandler):
         timeout = 8
 
@@ -54,7 +69,7 @@ def handler(pairing_code):
 
         @property
         def origin(self):
-            return f"http://127.0.0.1:{self.server.server_port}"
+            return public_origin or f"http://127.0.0.1:{self.server.server_port}"
 
         def page(self, status, body):
             html = (
@@ -77,18 +92,25 @@ def handler(pairing_code):
             self.wfile.write(html)
 
         def allowed(self):
-            return self.path == "/" and self.headers.get(
-                "Host"
-            ) == self.origin.removeprefix("http://")
+            return (
+                self.path == path
+                and self.headers.get("Host") == urlsplit(self.origin).netloc
+            )
 
         def do_GET(self):
             if not self.allowed():
                 return self.page(404, "Страница не найдена.")
-            self.page(200, FORM)
+            self.page(200, form)
 
         def do_POST(self):
             if not self.allowed() or self.headers.get("Origin") != self.origin:
                 return self.page(403, "Откройте страницу по адресу из терминала.")
+            if getattr(self.server, "connected", False) or (
+                deadline is not None and time.monotonic() >= deadline
+            ):
+                return self.page(
+                    410, "Срок ссылки истёк. Запросите подключение ещё раз."
+                )
             if self.headers.get_content_type() != "application/x-www-form-urlencoded":
                 return self.page(415, "Используйте форму мастера.")
             try:
@@ -98,24 +120,42 @@ def handler(pairing_code):
                 fields = parse_qs(
                     self.rfile.read(size).decode(),
                     strict_parsing=True,
-                    max_num_fields=4,
+                    max_num_fields=5,
                 )
-                if set(fields) != {"pair", "email", "password", "mode"}:
+                local = fields.pop("local", None)
+                if local is not None and (sys.platform != "linux" or local != ["yes"]):
+                    raise ValueError
+                if set(fields) != {"pair", "email", "password", "mode"} or any(
+                    len(v) != 1 for v in fields.values()
+                ):
                     raise ValueError
             except (ValueError, UnicodeError):
-                return self.page(400, "<p>Заполните все поля.</p>" + FORM)
+                return self.page(400, "<p>Заполните все поля.</p>" + form)
             if not hmac.compare_digest(
                 fields["pair"][0].encode(), pairing_code.encode()
             ):
                 return self.page(
                     403,
-                    "<p>Введите код, показанный в терминале при запуске мастера.</p>"
-                    + FORM,
+                    "<p>Введите код, полученный при запуске мастера.</p>" + form,
                 )
+            if email and email != fields["email"][0].strip().lower():
+                return self.page(400, "Адрес не совпадает с выбранным ящиком.")
+            if deadline is not None and time.monotonic() >= deadline:
+                return self.page(410, "Срок подключения истёк.")
             try:
-                connect(fields["email"][0], fields["password"][0], fields["mode"][0])
+                connect(
+                    fields["email"][0],
+                    fields["password"][0],
+                    fields["mode"][0],
+                    **({"local_store": True} if local else {}),
+                )
             except Problem as exc:
-                return self.page(400, f"<p role='alert'>{escape(str(exc))}</p>" + FORM)
+                return self.page(400, f"<p role='alert'>{escape(str(exc))}</p>" + form)
+            except KeyringError:
+                return self.page(
+                    503,
+                    "Хранилище паролей на хосте агента недоступно. Попросите администратора открыть его, затем повторите подключение.",
+                )
             self.server.connected = True
             self.page(
                 200,

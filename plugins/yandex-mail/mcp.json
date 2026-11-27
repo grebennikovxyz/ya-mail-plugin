@@ -7,13 +7,6 @@
       "args": [
         "serve"
       ]
-    },
-    "yandex-mail-360": {
-      "type": "stdio",
-      "command": "ya-mail",
-      "args": [
-        "serve-360"
-      ]
     }
   }
 }
