@@ -29,6 +29,8 @@ def main():
     interface.add_argument("--web", action="store_true", help="Мастер в браузере")
     setup.add_argument("--port", type=int, default=8776)
     interface.add_argument("--terminal", action="store_true", help="Текстовый мастер")
+    config = actions.add_parser("setup-origin", help="HTTPS-адрес формы подключения из чата")
+    config.add_argument("origin")
     actions.add_parser("status", help="Подключённые ящики и разрешения")
     check = actions.add_parser(
         "check", help="Проверить список папок и поиск по INBOX без вывода писем"
@@ -45,11 +47,7 @@ def main():
     )
     read.add_argument("--show-model", action="store_true")
     read.add_argument("prompt", nargs="?")
-    actions.add_parser(
-        "connect-360", help="Дополнительный вход в официальный MCP Яндекс 360"
-    )
-    actions.add_parser("disconnect-360", help="Отключить официальный MCP Яндекс 360")
-    actions.add_parser("serve-360", help="Официальный MCP Яндекс 360 через stdio")
+    actions.add_parser("disconnect-360", help="Удалить ранее сохранённый токен версии 0.5.2")
     logout = actions.add_parser(
         "disconnect", help="Удалить локальный доступ и позиции расписаний"
     )
@@ -87,17 +85,18 @@ def main():
             from .economy import launch
 
             raise SystemExit(launch(args.prompt, args.show_model))
-        elif args.action in {"connect-360", "disconnect-360", "serve-360"}:
-            from . import native
+        elif args.action == "disconnect-360":
+            from .accounts import DATA, SERVICE, vault
 
-            if args.action == "connect-360":
-                native.connect()
-            elif args.action == "disconnect-360":
-                native.disconnect()
-            else:
-                import asyncio
-
-                asyncio.run(native.serve())
+            marker = DATA / "native-enabled"
+            if marker.exists():
+                backend = vault()
+                if backend.get_password(SERVICE, "official-360"):
+                    backend.delete_password(SERVICE, "official-360")
+                marker.unlink(missing_ok=True)
+        elif args.action == "setup-origin":
+            from .chat_setup import configure
+            configure(args.origin)
         elif args.action == "status":
             print(json.dumps(profiles(), ensure_ascii=False, indent=2))
         elif args.action == "check":

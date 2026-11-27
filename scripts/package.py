@@ -19,11 +19,17 @@ FILES = [
     "plugin.json",
     ".codex-plugin/plugin.json",
     "mcp.json",
+    "launch.mjs",
     ".mcp.json",
     ".claude-plugin/plugin.json",
     "assets/ya-ma.png",
     "skills/yandex-mail/SKILL.md",
 ]
+
+
+def backend_files():
+    backend = PLUGIN / "backend"
+    return [backend / "pyproject.toml", *sorted((backend / "ya_mail").glob("*.py"))]
 
 
 def runtime_files(archive, runtime, packages):
@@ -82,6 +88,8 @@ def package(runtime=None):
             )
         with ZipFile(path, "w", ZIP_DEFLATED) as archive:
             for f in FILES:
+                if runtime and f == "launch.mjs":
+                    continue
                 content = (PLUGIN / f).read_bytes()
                 if runtime and f in {"mcp.json", ".mcp.json"}:
                     config = json.loads(content)
@@ -92,10 +100,15 @@ def package(runtime=None):
                             "-B",
                             "-m",
                             "ya_mail.cli",
-                            *server["args"],
+                            "serve",
                         ]
                     content = json.dumps(config, indent=2).encode()
                 archive.writestr(f, content)
+            if not runtime:
+                for name in ("openclaw.plugin.json", "openclaw.js", "package.json"):
+                    archive.write(PLUGIN / name, name)
+                for source in backend_files():
+                    archive.write(source, source.relative_to(PLUGIN).as_posix())
             readme = (ROOT / "README.md").read_text(encoding="utf-8")
             archive.writestr(
                 "README.md", readme.replace("plugins/yandex-mail/assets/", "assets/")
@@ -104,7 +117,7 @@ def package(runtime=None):
                 archive.write(ROOT / f, f)
             if runtime:
                 runtime_files(archive, runtime, packages)
-                for cmd in ("connect", "connect-360"):
+                for cmd in ("connect",):
                     archive.writestr(
                         cmd + ".cmd",
                         f'@echo off\r\n"%~dp0runtime\\python.exe" -I -B -m ya_mail.cli {cmd}\r\nif errorlevel 1 pause\r\n',
@@ -128,10 +141,13 @@ def clawhub_package():
         for name in (
             ".claude-plugin/plugin.json",
             ".mcp.json",
+            "launch.mjs",
             "assets/ya-ma.png",
             "skills/yandex-mail/SKILL.md",
         ):
             archive.add(PLUGIN / name, arcname="package/" + name, recursive=False)
+        for source in backend_files():
+            archive.add(source, arcname="package/" + source.relative_to(PLUGIN).as_posix())
         for name in ("LICENSE", "NOTICE", "README.md"):
             archive.add(ROOT / name, arcname="package/" + name, recursive=False)
     return path

@@ -1,0 +1,23 @@
+{
+  "id": "yandex-mail",
+  "name": "Ya-Ma",
+  "version": "0.6.0",
+  "skills": [
+    "./skills"
+  ],
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "mcpServers": {
+    "yandex-mail": {
+      "command": "node",
+      "args": [
+        "./launch.mjs",
+        "serve"
+      ],
+      "connectionTimeoutMs": 240000
+    }
+  }
+}

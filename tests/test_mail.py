@@ -12,7 +12,7 @@ import pytest
 from conftest import accept_digest, consent, send_now
 from pydantic import ValidationError
 
-from ya_mail import accounts, mail, native, outbox, server, transport
+from ya_mail import accounts, mail, outbox, server, transport
 
 
 def test_search_ids_and_transitive_threads_without_search_header(env):
@@ -301,10 +301,3 @@ def test_send_reservation_blocks_ambiguous_retry(env, monkeypatch):
             )
         )
     assert smtp.send_message.call_count == 1
-
-
-def test_native_allowlist():
-    assert native.allowed("mail.list_labels", "read")
-    assert not native.allowed("mail.add_message_labels", "read")
-    assert native.allowed("mail_add_message_labels", "organize")
-    assert not native.allowed("mail.unknown_action", "organize")

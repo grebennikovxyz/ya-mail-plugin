@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-ya-ma",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Yandex Mail operations and scheduled feeds through a personal Ya-Ma gateway",
   "author": "Антон Гребенников",
   "license": "Apache-2.0",

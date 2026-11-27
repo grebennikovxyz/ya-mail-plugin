@@ -195,14 +195,3 @@ def verified_role(client, role):
             if flags.intersection(a.lower() for a in attrs)
         }
     return next(iter(matches)) if len(matches) == 1 else None
-
-
-def native_guard():
-    # The separate OAuth adapter cannot attest to an IMAP account or folder.
-    with database() as db:
-        if db.execute(
-            "SELECT 1 FROM folder_rules WHERE mode='blocked' LIMIT 1"
-        ).fetchone():
-            raise Problem(
-                "Яндекс 360 не подтверждает ящик и папку для этого вызова. Используйте основной сервер Ya-Ma с проверкой доступа."
-            )

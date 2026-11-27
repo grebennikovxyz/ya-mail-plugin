@@ -1,4 +1,6 @@
 import json
+import os
+import stat
 import re
 import sqlite3
 import sys
@@ -54,11 +56,20 @@ def vault():
 @contextmanager
 def database():
     DATA.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name == "posix":
+        info = DATA.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+            raise Problem("Каталог данных Ya-Ma должен принадлежать пользователю службы.")
+        if info.st_mode & 0o077:
+            DATA.chmod(0o700)
     db = sqlite3.connect(DATA / "mail.sqlite3", timeout=35)
     db.row_factory = sqlite3.Row
     try:
         db.execute("PRAGMA foreign_keys=ON")
+        db.execute("PRAGMA secure_delete=ON")
         db.executescript("""
+            CREATE TABLE IF NOT EXISTS mailbox_pairings(
+                id TEXT PRIMARY KEY, email TEXT NOT NULL, expires INTEGER NOT NULL, private_key BLOB NOT NULL);
             CREATE TABLE IF NOT EXISTS accounts(
                 email TEXT PRIMARY KEY, mode TEXT NOT NULL, secret TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS release_checks(
@@ -153,17 +164,19 @@ def profiles():
         ]
 
 
-def save(account):
-    key = uuid4().hex
-    backend = vault()
+def save(account, *, local_store=False):
+    from . import local_vault
+    value = json.dumps([account.email, account.mode, account.password])
+    use_file = local_store and sys.platform == "linux"
+    backend = None if use_file else vault()
+    key = local_vault.seal(value) if use_file else uuid4().hex
     with database() as db:
         db.execute("BEGIN IMMEDIATE")
         old = db.execute(
             "SELECT secret FROM accounts WHERE email=?", (account.email,)
         ).fetchone()
-        backend.set_password(
-            SERVICE, key, json.dumps([account.email, account.mode, account.password])
-        )
+        if backend is not None:
+            backend.set_password(SERVICE, key, value)
         try:
             db.execute(
                 """INSERT INTO accounts VALUES (?,?,?) ON CONFLICT(email)
@@ -172,10 +185,11 @@ def save(account):
             )
             db.commit()
         except Exception:
-            backend.delete_password(SERVICE, key)
+            if backend is not None:
+                backend.delete_password(SERVICE, key)
             raise
-    if old:
-        backend.delete_password(SERVICE, old["secret"])
+    if old and not old["secret"].startswith("local:"):
+        vault().delete_password(SERVICE, old["secret"])
 
 
 def current(email, access: Mode = "read"):
@@ -185,7 +199,11 @@ def current(email, access: Mode = "read"):
         row = db.execute(
             "SELECT secret FROM accounts WHERE email=?", (email,)
         ).fetchone()
-        data = row and vault().get_password(SERVICE, row["secret"])
+        data = None
+        if row:
+            from . import local_vault
+            key = row["secret"]
+            data = local_vault.unseal(key) if key.startswith("local:") else vault().get_password(SERVICE, key)
     if not data:
         raise Problem(
             "Подключите этот ящик на своём компьютере командой ya-mail connect."
@@ -214,7 +232,7 @@ def forget(email):
 
             invalidate_files(email)
             db.execute("DELETE FROM accounts WHERE email=?", (email,))
-            if vault().get_password(SERVICE, row["secret"]) is not None:
+            if not row["secret"].startswith("local:") and vault().get_password(SERVICE, row["secret"]) is not None:
                 vault().delete_password(SERVICE, row["secret"])
 
     from .lazy_store import skill_path

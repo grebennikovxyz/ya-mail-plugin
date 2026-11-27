@@ -1,0 +1,8 @@
+:root { color-scheme: light dark; font: 17px/1.5 system-ui,sans-serif }
+main { max-width: 34rem; margin: clamp(1rem,6vh,4rem) auto; padding: 0 1rem }
+h1 { font-size: clamp(1.5rem,5vw,2.3rem); line-height: 1.15 }
+label { display: block; margin: 1rem 0 .35rem }
+[hidden] { display: none !important }
+input:not([type=checkbox]), select, textarea, button { box-sizing: border-box; width: 100%; padding: .65rem; font: inherit; border-radius: .4rem }
+button { background: #53364f; color: white; border: 0; margin: .5rem 0; cursor: pointer }
+textarea { overflow-wrap: anywhere; font-family: monospace }
