@@ -6,3 +6,4 @@ label { display: block; margin: 1rem 0 .35rem }
 input:not([type=checkbox]), select, textarea, button { box-sizing: border-box; width: 100%; padding: .65rem; font: inherit; border-radius: .4rem }
 button { background: #53364f; color: white; border: 0; margin: .5rem 0; cursor: pointer }
 textarea { overflow-wrap: anywhere; font-family: monospace }
+footer { margin-top: 2rem; font-size: .9rem }
