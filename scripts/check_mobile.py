@@ -100,6 +100,9 @@ def sealed_setup(pw, engine, device):
                     expect(
                         page.get_by_text("Вы подключаете qa@example.org")
                     ).to_be_visible()
+                    expect(page.locator("#privacy")).to_be_visible()
+                    requests = []
+                    page.on("request", lambda request: requests.append(request.url))
                     page.get_by_label("Пароль приложения", exact=True).fill(
                         "fixturepass"
                     )
@@ -107,6 +110,7 @@ def sealed_setup(pw, engine, device):
                     expect(page.locator("#code")).to_have_value(re.compile(r"^YM1\."))
                     code = page.locator("#code").input_value()
                     assert code.startswith("YM1.") and "fixturepass" not in code
+                    assert not requests, "Encrypting a password must not send a request"
                     assert pairing.finish(code)["connected"]
                     connect.assert_called_once_with(
                         "qa@example.org", "fixturepass", "read", local_store=False
