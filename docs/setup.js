@@ -5,7 +5,7 @@ if (location.origin === "https://grebennikovxyz.github.io" && ["/ya-mail-plugin/
   const opening = new Image(1, 1);
   opening.crossOrigin = "anonymous";
   opening.referrerPolicy = "no-referrer";
-  opening.src = "https://ya-ma-count.grebennikov.xyz/ya-ma/open.gif";
+  opening.src = "https://plugins.grebennikov.xyz/ya-ma/open.gif";
 }
 function decode(text) {
   return Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));

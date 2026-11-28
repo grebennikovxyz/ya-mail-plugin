@@ -14,7 +14,7 @@ def private_counter(pw, engine, device):
     from urllib.parse import urlsplit
 
     root = "https://grebennikovxyz.github.io/ya-mail-plugin/"
-    endpoint = "https://ya-ma-count.grebennikov.xyz/ya-ma/open.gif"
+    endpoint = "https://plugins.grebennikov.xyz/ya-ma/open.gif"
     docs = Path(__file__).resolve().parents[1] / "docs"
     browser = engine.launch()
     try:
