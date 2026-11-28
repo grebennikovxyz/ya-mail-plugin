@@ -5,8 +5,14 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'">
 <title>Подключение Яндекс Почты · Ya-Ma</title><link rel="stylesheet" href="./setup.css"><script defer src="./setup.js"></script></head>
 <body><main><h1>Подключить Яндекс Почту</h1><p id="status" role="status">Откройте ссылку из личного чата с Ya-Ma.</p>
+<p id="privacy">Сайт не получает пароль приложения. Ваш браузер шифрует его открытым ключом из ссылки. Открывайте ссылку, которую только что запросили в своём личном чате с Ya-Ma.</p>
+<details><summary>Кто может прочитать пароль и как это проверить?</summary>
+<p>В тот же чат вы возвращаете зашифрованный код <code>YM1</code>. Закрытый ключ для него создаёт ваша установка Ya-Ma. Она расшифровывает код, проверяет пароль у Яндекса по защищённому соединению и сохраняет его в выбранном вами хранилище. Если OpenClaw работает на сервере, это хранилище находится на сервере OpenClaw.</p>
+<p>Код подключения действует 10 минут с момента запроса и принимается один раз. Сам пароль приложения можно отозвать в Яндекс ID.</p>
+<p>Откройте вкладку «Сеть» в инструментах браузера, введите вымышленное значение из латинских букв и нажмите «Получить код для чата». При шифровании сетевого запроса не будет. <a href="https://github.com/grebennikovxyz/ya-mail-plugin/blob/main/docs/setup.js" target="_blank" rel="noreferrer">Исходный код формы</a> · <a href="https://github.com/grebennikovxyz/ya-mail-plugin/blob/main/plugins/yandex-mail/backend/ya_mail/pairing.py" target="_blank" rel="noreferrer">Расшифровка на вашей стороне</a></p>
+</details>
 <section id="wizard" hidden><p>В <a href="https://mail.yandex.ru/#setup/client" target="_blank" rel="noreferrer">настройках Почты</a> включите IMAP. В <a href="https://id.yandex.ru/security/app-passwords" target="_blank" rel="noreferrer">Яндекс ID</a> создайте пароль приложения типа «Почта» для этого ящика.</p>
-<label for="password">Пароль приложения</label><input type="password" id="password" autocomplete="off" maxlength="160">
+<label for="password">Пароль приложения</label><input type="password" id="password" aria-describedby="privacy" autocomplete="off" maxlength="160">
 <label for="mode">Доступ агента</label><select id="mode"><option value="read">Только чтение</option><option value="organize">Чтение, папки, метки и черновики</option><option value="send">Также разрешить отправку</option></select>
 <label id="storage" hidden><input type="checkbox" id="local"> Разрешить хранение на моём Linux-сервере с локальным ключом вместо системного хранилища паролей. Ключ доступен пользователю службы и администратору.</label>
 <p>Браузер зашифрует пароль для вашей установки Ya-Ma. В личный чат отправьте только полученный код.</p>
