@@ -2,11 +2,71 @@
 
 import re
 from http.server import HTTPServer
+from pathlib import Path
 from threading import Thread
 from unittest.mock import patch
 
 from playwright.sync_api import expect, sync_playwright
 from ya_mail import web_wizard
+
+
+def private_counter(pw, engine, device):
+    from urllib.parse import urlsplit
+
+    root = "https://grebennikovxyz.github.io/ya-mail-plugin/"
+    endpoint = "https://plugins.grebennikov.xyz/ya-ma/open.gif"
+    docs = Path(__file__).resolve().parents[1] / "docs"
+    browser = engine.launch()
+    try:
+        context = browser.new_context(**pw.devices[device])
+        context.add_cookies(
+            [
+                {
+                    "name": "private",
+                    "value": "fixture",
+                    "url": endpoint,
+                    "secure": True,
+                    "sameSite": "None",
+                }
+            ]
+        )
+        requests = []
+
+        def offline(route):
+            url = route.request.url
+            if url.startswith(root):
+                filename = urlsplit(url).path.rsplit("/", 1)[-1] or "index.html"
+                assert filename in {"index.html", "setup.css", "setup.js"}
+                route.fulfill(path=docs / filename)
+            else:
+                requests.append(
+                    (
+                        url,
+                        route.request.method,
+                        route.request.all_headers(),
+                        route.request.post_data,
+                    )
+                )
+                route.abort()
+
+        context.route("**/*", offline)
+        page = context.new_page()
+        for expected, navigate in enumerate(
+            (lambda: page.goto(root + "#private-fragment"), page.reload), 1
+        ):
+            with page.expect_request(endpoint):
+                navigate()
+            assert len(requests) == expected
+            url, method, headers, body = requests[-1]
+            assert (url, method, body) == (endpoint, "GET", None)
+            assert headers["origin"] == "https://grebennikovxyz.github.io"
+            assert "cookie" not in headers and "referer" not in headers
+            expect(
+                page.get_by_role("link", name="Поддержать Ya-Ma на Boosty")
+            ).to_be_visible()
+        print(f"{device}: one credential-free request per page load")
+    finally:
+        browser.close()
 
 
 def sealed_setup(pw, engine, device):
@@ -77,6 +137,7 @@ def main():
                     (pw.webkit, "iPhone 13"),
                 ):
                     server.connected = False
+                    private_counter(pw, engine, device)
                     sealed_setup(pw, engine, device)
                     browser = engine.launch()
                     try:
